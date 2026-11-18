@@ -1,0 +1,15 @@
+{
+  "name": "@a08/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./anchoring": "./src/anchoring/index.ts"
+  },
+  "dependencies": {
+    "approx-string-match": "*",
+    "yaml": "*"
+  }
+}

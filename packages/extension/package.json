@@ -1,0 +1,22 @@
+{
+  "name": "@a08/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@a08/core": "*",
+    "@codemirror/commands": "*",
+    "@codemirror/lang-markdown": "*",
+    "@codemirror/language": "*",
+    "@codemirror/state": "*",
+    "@codemirror/view": "*",
+    "dompurify": "*",
+    "@lezer/highlight": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "*"
+  }
+}

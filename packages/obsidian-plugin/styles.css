@@ -1,0 +1,57 @@
+.a08-card {
+  --a08-accent: rgba(255, 200, 0, 0.8);
+  border-left: 4px solid var(--a08-accent);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s, 4px);
+  padding: 0.4em 0.75em;
+  margin: 0.25em 0;
+}
+.a08-card .a08-quote {
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-style: normal;
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+.a08-card .a08-exact {
+  color: var(--text-normal);
+}
+.a08-card .a08-context {
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+.a08-card .a08-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  align-items: center;
+  margin-top: 0.3em;
+  font-size: var(--font-ui-smaller, 0.8em);
+  color: var(--text-muted);
+}
+.a08-card .a08-tag {
+  color: var(--tag-color);
+}
+.a08-card .a08-reveal {
+  margin-left: auto;
+  font-size: inherit;
+  padding: 0 0.6em;
+  height: auto;
+}
+.a08-card-error {
+  color: var(--text-error);
+}
+.a08-styles .a08-style-row {
+  display: flex;
+  gap: 1em;
+  align-items: baseline;
+  padding: 0.15em 0;
+}
+.a08-styles .a08-style-label {
+  min-width: 8em;
+  color: var(--text-muted);
+}
+.a08-status {
+  cursor: pointer;
+}

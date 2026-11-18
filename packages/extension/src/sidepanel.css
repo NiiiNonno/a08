@@ -1,0 +1,151 @@
+:root {
+  color-scheme: light dark;
+  --bg: var(--background-primary, #ffffff);
+  --bg2: var(--background-secondary, #f6f8fa);
+  --border: var(--background-modifier-border, #d0d7de);
+  --hover: var(--background-modifier-hover, rgba(0, 0, 0, 0.06));
+  --fg: var(--text-normal, #1f2328);
+  --muted: var(--text-muted, #57606a);
+  --faint: var(--text-faint, #8c959f);
+  --accent: var(--interactive-accent, #2f6fde);
+  --on-accent: var(--text-on-accent, #ffffff);
+  --link: var(--link-color, var(--text-accent, #2f6fde));
+  --code-bg: var(--code-background, rgba(0, 0, 0, 0.05));
+  --font: var(--font-text, system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif);
+  --mono: var(--font-monospace, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--background-primary, #1e1e1e);
+    --bg2: var(--background-secondary, #262626);
+    --border: var(--background-modifier-border, #3a3a3a);
+    --hover: var(--background-modifier-hover, rgba(255, 255, 255, 0.08));
+    --fg: var(--text-normal, #dcddde);
+    --muted: var(--text-muted, #a3a3a3);
+    --faint: var(--text-faint, #707070);
+    --link: var(--link-color, var(--text-accent, #8ab4f8));
+    --code-bg: var(--code-background, rgba(255, 255, 255, 0.06));
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+}
+button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+
+header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.title-row { display: flex; gap: 8px; align-items: flex-start; }
+.title { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 4px; flex-shrink: 0; }
+.sub { color: var(--muted); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.sub .warn { color: var(--color-red, #d93025); }
+
+.banner {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  font-size: 13px;
+}
+.banner.error { border-color: var(--color-red, #d93025); }
+.banner .row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+
+main { flex: 1; overflow: auto; }
+#view { padding: 4px 14px 40px; }
+#view:empty { display: none; }
+.empty { color: var(--muted); padding: 16px 14px; }
+.empty kbd {
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Obsidian の描画結果 */
+.markdown-rendered a { color: var(--link); }
+.markdown-rendered code { font-family: var(--mono); background: var(--code-bg); border-radius: 4px; padding: 0 3px; font-size: 0.9em; }
+.markdown-rendered pre { background: var(--code-bg); padding: 8px; border-radius: 6px; overflow: auto; }
+.markdown-rendered pre code { background: none; padding: 0; }
+.markdown-rendered blockquote { margin: 0.5em 0; padding-left: 10px; border-left: 3px solid var(--blockquote-border-color, var(--border)); color: var(--muted); }
+.markdown-rendered h1 { font-size: 1.35em; margin: 0.6em 0 0.4em; }
+.markdown-rendered h2 { font-size: 1.2em; margin: 0.8em 0 0.4em; }
+.markdown-rendered h3 { font-size: 1.05em; }
+.markdown-rendered img { max-width: 100%; }
+.markdown-rendered .tag, .markdown-rendered a.tag {
+  color: var(--tag-color, var(--link));
+  background: var(--tag-background, transparent);
+  border-radius: 1em;
+  padding: 0 0.4em;
+  text-decoration: none;
+}
+.markdown-rendered .copy-code-button,
+.markdown-rendered .edit-block-button,
+.markdown-rendered .frontmatter-container,
+.markdown-rendered .mod-header,
+.markdown-rendered .markdown-preview-pusher { display: none; }
+
+/* 註カード（Obsidian プラグインの描画） */
+.a08-card {
+  --a08-accent: rgba(255, 200, 0, 0.8);
+  border-left: 4px solid var(--a08-accent);
+  background: var(--bg2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin: 12px 0 4px;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+.a08-card:hover { box-shadow: 0 0 0 1px var(--border); }
+.a08-card.flash { box-shadow: 0 0 0 2px var(--accent); }
+.a08-card.orphan { opacity: 0.7; }
+.a08-card.orphan::after {
+  content: "このページ内で該当箇所が見つかりません";
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+}
+.a08-card .a08-quote { margin: 0; padding: 0; border: none; color: var(--fg); white-space: pre-wrap; }
+.a08-card .a08-context { color: var(--faint); font-size: 0.9em; }
+.a08-card .a08-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; margin-top: 3px; align-items: center; }
+.a08-card .a08-meta a { color: var(--muted); }
+.a08-card .a08-tag { color: var(--tag-color, var(--link)); }
+.a08-card .a08-reveal { display: none; }
+
+/* エディタ */
+#editor { height: 100%; }
+#editor .cm-editor { height: 100%; }
+#editor .cm-editor.cm-focused { outline: none; }
+#editor .cm-scroller { font-family: var(--font); line-height: 1.6; }
+#editor .cm-content { padding: 10px 6px 40vh; }
+#editor .cm-line.a08-ann-line { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+#editor .cm-line.a08-flash { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.save-state { color: var(--faint); font-size: 11px; margin-left: 4px; }

@@ -1,0 +1,9 @@
+{
+  "id": "a08-annotations",
+  "name": "a08 Annotations",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Web ページへの註を vault の markdown に保存し、Chrome 拡張と連携します。",
+  "author": "a08",
+  "isDesktopOnly": true
+}

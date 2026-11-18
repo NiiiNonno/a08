@@ -1,0 +1,28 @@
+{
+  "name": "a08",
+  "private": true,
+  "description": "Obsidian と Chrome をつなぐローカル註システム",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/server",
+    "packages/obsidian-plugin",
+    "packages/extension"
+  ],
+  "scripts": {
+    "build": "npm run build -w @a08/obsidian-plugin && npm run build -w @a08/extension",
+    "typecheck": "tsc -p packages/core && tsc -p packages/server && tsc -p packages/obsidian-plugin && tsc -p packages/extension",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "dev-server": "node --experimental-strip-types packages/server/src/dev-server.ts",
+    "install-plugin": "node scripts/install-plugin.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "*",
+    "@types/node": "*",
+    "esbuild": "*",
+    "jsdom": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

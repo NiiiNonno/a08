@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>a08 註 — 設定</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    label { display: block; font-weight: 600; margin-top: 18px; }
+    .desc { color: GrayText; font-size: 12px; margin: 2px 0 6px; }
+    input, textarea { font: 13px ui-monospace, Menlo, Consolas, monospace; width: 100%; padding: 6px 8px; border: 1px solid #8888; border-radius: 6px; background: Field; color: FieldText; box-sizing: border-box; }
+    textarea { min-height: 6em; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 18px; }
+    button { font: inherit; padding: 4px 14px; border-radius: 6px; border: 1px solid #8888; background: ButtonFace; color: ButtonText; cursor: pointer; }
+    #status { font-size: 13px; }
+    .ok { color: #1a7f37; } .ng { color: #d93025; }
+  </style>
+</head>
+<body>
+  <h1>a08 註 — 設定</h1>
+  <label for="token">接続トークン</label>
+  <div class="desc">Obsidian のプラグイン「a08 Annotations」の設定画面、またはコマンド「拡張用の接続トークンをコピー」で取得できます。</div>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+
+  <label for="port">ポート</label>
+  <div class="desc">プラグイン側の設定と同じにします（既定 27183）。</div>
+  <input id="port" type="number" min="1024" max="65535">
+
+  <label for="ignore">無視する要素（CSS セレクタ、1 行に 1 つ）</label>
+  <div class="desc">対訳型の翻訳拡張が挿入する訳文などを指定すると、その中の文字はハイライトや位置の計算に使われません（原文側に註をつけるため）。</div>
+  <textarea id="ignore" spellcheck="false"></textarea>
+
+  <div class="row">
+    <button id="save">保存して接続</button>
+    <span id="status"></span>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

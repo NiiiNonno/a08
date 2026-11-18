@@ -1,0 +1,16 @@
+{
+  "name": "@a08/obsidian-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@a08/core": "*",
+    "@a08/server": "*"
+  },
+  "devDependencies": {
+    "obsidian": "*"
+  }
+}

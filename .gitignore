@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.tools/
+test-results/
+playwright-report/
+e2e/fixtures/tmp/
+test-vault/annotations/*.md
+!test-vault/annotations/.gitkeep
+test-vault/.obsidian/
