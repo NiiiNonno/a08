@@ -113,16 +113,23 @@ describe('NoteService', () => {
     expect(service.findPath(['https://x.example/p'])).toBe('obsidiannot/sub/x.md');
   });
 
-  it('creates 照 with a block id and adds ids to existing annotations', async () => {
+  it('gives every annotation a block id and adds ids to older ones', async () => {
     const shou = await service.createAnnotation({ uris: ['https://f.example/'], title: 'F', source: '', selector: sel, blockId: true });
     const a = shou.note.annotations[0];
     expect(shou.blockId).toMatch(/^[a-z0-9]{6}$/);
     expect(a.blockId).toBe(shou.blockId);
-    const plain = await service.createAnnotation({ uris: ['https://f.example/'], title: 'F', source: '', selector: sel, comment: 'c' });
+    // 照でなくても ID が付き、カードとコメントの間は一行空く
+    const chu = await service.createAnnotation({ uris: ['https://f.example/'], title: 'F', source: '', selector: sel, comment: 'c' });
+    expect(chu.blockId).toMatch(/^[a-z0-9]{6}$/);
+    expect(chu.blockId).not.toBe(shou.blockId);
+    expect(chu.note.content).toContain(`\n^${chu.blockId}\n\nc\n`);
+    expect((await service.ensureBlockId(chu.note.path, chu.id)).changed).toBe(false);
+    // ID のない古い註には後から付ける
+    await writeFile(join(dir, chu.note.path), chu.note.content.replace(`\n^${chu.blockId}\n`, '\n'));
+    const plain = chu;
     const r = await service.ensureBlockId(plain.note.path, plain.id);
     expect(r.changed).toBe(true);
     expect(r.note.annotations.find(x => x.id === plain.id)).toMatchObject({ blockId: r.blockId, comment: 'c' });
-    expect(r.blockId).not.toBe(shou.blockId);
     // コメントを書き換えても ID は残る
     const up = await service.updateComment(plain.note.path, plain.id, 'new');
     expect(up.note.annotations.find(x => x.id === plain.id)).toMatchObject({ blockId: r.blockId, comment: 'new' });

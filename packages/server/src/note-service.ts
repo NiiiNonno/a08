@@ -226,12 +226,11 @@ export class NoteService {
         source: params.source || uris[0] || '',
         selector: params.selector,
       };
-      let blockId: string | undefined;
-      if (params.blockId) {
-        const used = new Set(parseNote(content).annotations.map(x => x.blockId));
-        do blockId = newBlockId();
-        while (used.has(blockId) || content.includes(`^${blockId}`));
-      }
+      // ブロック ID は照に限らず全部の註に付ける（あとからリンクで参照できるように）
+      const used = new Set(parseNote(content).annotations.map(x => x.blockId));
+      let blockId: string;
+      do blockId = newBlockId();
+      while (used.has(blockId) || content.includes(`^${blockId}`));
       content = appendAnnotation(content, data, params.comment ?? '', blockId).text;
       const note = await this.writeNote(target, content);
       return { note, id, blockId };
@@ -314,8 +313,8 @@ export class NoteService {
       const before = lines.slice(0, a.headEndLine + 1);
       const after = lines.slice(a.endLine + 1);
       const body = comment.replace(/\s+$/, '');
-      // ブロック ID 行の直後は空行を挟む（でないと ID として認識されない）
-      const mid = body ? (a.blockId ? ['', body.replace(/^\s*\n/, '')] : [body]) : [];
+      // カード（とブロック ID 行）とコメントの間は一行空ける（ID 行の直後に続くと ID として認識されない）
+      const mid = body ? ['', body.replace(/^\s*\n/, '')] : [];
       // 後続と詰まらないよう空行を1つ入れる
       if (after.length && after[0].trim() !== '') mid.push('');
       const out = [...before, ...mid, ...after].join('\n');

@@ -256,8 +256,8 @@ export function appendAnnotation(
   const block = serializeAnnotation(a) + (blockId ? `\n^${blockId}` : '');
   const sep = base ? '\n\n' : '';
   const offset = base.length + sep.length;
-  // ID 行の直後に本文が続くと Obsidian が ID と認めないので空行を挟む
-  const tail = comment.trim() ? `\n${blockId ? '\n' : ''}${comment.trim()}\n` : '\n';
+  // カードとコメントの間は一行空ける（ID 行の直後に本文が続くと Obsidian が ID と認めない）
+  const tail = comment.trim() ? `\n\n${comment.trim()}\n` : '\n';
   base = `${base}${sep}${block}${tail}`;
   return { text: base, offset };
 }
@@ -285,6 +285,30 @@ export function ensureBlockId(
   if (next !== undefined && next.trim() !== '') insert.push('');
   lines.splice(a.blockEndLine + 1, 0, ...insert);
   return { text: lines.join('\n'), blockId, changed: true };
+}
+
+/**
+ * 註ブロックの中身を書き換える（ID 行・コメントはそのまま）。
+ * update が null を返した註、見つからない註は変えない。
+ */
+export function updateAnnotations(
+  text: string,
+  update: (a: AnnotationData) => AnnotationData | null,
+): { text: string; changed: string[] } {
+  const parsed = parseNote(text);
+  const lines = text.split('\n');
+  const changed: string[] = [];
+  // 後ろから置き換えて行番号がずれないようにする
+  for (const a of [...parsed.annotations].reverse()) {
+    const { comment: _c, tags: _t, startLine, blockEndLine, headEndLine: _h, endLine: _e, startOffset: _s, endOffset: _o, blockId: _b, ...data } = a;
+    const next = update(data);
+    if (!next) continue;
+    const cr = lines[startLine].endsWith('\r');
+    const block = serializeAnnotation(next).split('\n').map(l => (cr ? `${l}\r` : l));
+    lines.splice(startLine, blockEndLine - startLine + 1, ...block);
+    changed.push(a.id);
+  }
+  return { text: changed.length ? lines.join('\n') : text, changed };
 }
 
 /** Obsidian のブロック ID 風（英小文字と数字 6 文字） */

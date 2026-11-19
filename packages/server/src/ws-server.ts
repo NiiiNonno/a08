@@ -202,7 +202,8 @@ export class AnnotationServer {
         }
         const r = await service.createAnnotation(cp);
         this.noteChangedAfterReply(r.note.path, r.note);
-        result = { note: r.note, id: r.id, ...(r.blockId ? { link: hooks.linkTo(r.note.path, r.blockId) } : {}) };
+        // ブロック ID は全部の註に付くが、リンクを返すのは照（blockId を求められたとき）だけ
+        result = { note: r.note, id: r.id, ...(cp.blockId && r.blockId ? { link: hooks.linkTo(r.note.path, r.blockId) } : {}) };
         break;
       }
       case 'linkToAnnotation': {

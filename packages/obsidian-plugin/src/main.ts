@@ -30,8 +30,13 @@ import {
 } from '@a08/core';
 import { AnnotationServer, NoteService, contentVersion } from '@a08/server';
 import { ObsidianVault } from './obsidian-vault.ts';
-import { renderCard, renderStylesPreview } from './card.ts';
+import { isLocalSource, renderCard, renderStylesPreview, restyleCards } from './card.ts';
 import { collectAppearance } from './appearance.ts';
+import { LocalAnnotations } from './local/manager.ts';
+import { LocalPanel } from './local/panel.ts';
+import { SelectionAdder } from './local/adder.ts';
+import { localEditorExtension } from './local/editor.ts';
+import { buildLocalCss } from './local/styles.ts';
 
 type Settings = {
   port: number;
@@ -41,6 +46,8 @@ type Settings = {
   stylesYaml: string;
   /** 註カードに引用の前後の文脈を出す */
   showContext: boolean;
+  /** vault 内のノートへの註ノートの名前に付ける末尾（「ノート名 - local」） */
+  localSuffix: string;
 };
 
 const DEFAULTS: Settings = {
@@ -49,6 +56,7 @@ const DEFAULTS: Settings = {
   folder: 'obsidiannot',
   stylesYaml: DEFAULT_STYLES_YAML,
   showContext: false,
+  localSuffix: ' - local',
 };
 
 /** サイドパネルの枠（ヘッダーなど）に使う Obsidian の CSS 変数 */
@@ -112,11 +120,19 @@ export default class ObsidiannotPlugin extends Plugin {
   private renderTexts = new Map<string, string>();
   private serverError: string | null = null;
   private appearanceCache: Appearance | null = null;
+  local!: LocalAnnotations;
+  localPanel!: LocalPanel;
+  private adder!: SelectionAdder;
+  private localStyleEl: HTMLStyleElement | null = null;
 
   async onload() {
     await this.loadSettings();
-    this.applyStylesYaml();
     this.service = new NoteService(new ObsidianVault(this.app), { folder: this.settings.folder });
+    this.local = new LocalAnnotations(this);
+    this.localPanel = new LocalPanel(this, this.local);
+    this.adder = new SelectionAdder(this, this.local);
+    this.applyStylesYaml();
+    this.setupLocal();
 
     this.registerMarkdownCodeBlockProcessor(ANNOTATION_LANG, (source, el, ctx) => {
       const info = ctx.getSectionInfo(el);
@@ -127,6 +143,9 @@ export default class ObsidiannotPlugin extends Plugin {
         dark: document.body.classList.contains('theme-dark'),
         showContext: this.settings.showContext,
         onReveal: a => this.reveal(ctx.sourcePath, a),
+        decorate: (card, a) => {
+          if (isLocalSource(a.source)) this.local.decorateCard(card, ctx.sourcePath, String(a.id));
+        },
       });
     });
 
@@ -177,6 +196,7 @@ export default class ObsidiannotPlugin extends Plugin {
     this.app.workspace.onLayoutReady(async () => {
       await this.service.rebuildIndex();
       this.registerVaultEvents();
+      this.localPanel.adopt();
       await this.startServer();
     });
 
@@ -189,12 +209,79 @@ export default class ObsidiannotPlugin extends Plugin {
   }
 
   async onunload() {
+    this.localStyleEl?.remove();
+    for (const name of Array.from(CSS.highlights?.keys() ?? [])) if (name.startsWith('obsidiannot-')) CSS.highlights.delete(name);
     await this.server?.stop();
     this.server = null;
   }
 
+  /** vault 内のノートへの註（ハイライト・サイドバー・選択時のボタン） */
+  private setupLocal() {
+    const local = this.local;
+    this.registerEditorExtension(
+      localEditorExtension({
+        attached: (view, path) => local.editorAttached(view, path),
+        idle: (view, path) => local.editorIdle(view, path),
+        hasOrphans: path => local.problems(path).orphan.length > 0,
+        clicked: (path, id) => void this.localPanel.focusCard(path, id),
+      }),
+    );
+    this.registerMarkdownPostProcessor((el, ctx) => local.onSection(el, ctx));
+    this.localPanel.register();
+    this.adder.register();
+    // 閲覧表示でハイライトを押したら、対応するカードを見せる
+    this.registerDomEvent(document, 'click', ev => {
+      const t = ev.target as HTMLElement | null;
+      if (!t?.closest?.('.markdown-preview-view .obsidiannot-section')) return;
+      if (!document.getSelection()?.isCollapsed) return;
+      const hit = local.annotationAtPoint(ev.clientX, ev.clientY, document);
+      if (hit) void this.localPanel.focusCard(hit.path, hit.id);
+    });
+    const run = (kind: 'chu' | 'sho') => (checking: boolean) => {
+      const r = this.adder.selection();
+      if (!r) return false;
+      if (!checking) void local.create(kind, r);
+      return true;
+    };
+    this.addCommand({ id: 'annotate-selection', name: '選択範囲に註を付ける', checkCallback: run('chu') });
+    this.addCommand({ id: 'shine-selection', name: '選択範囲を照らす（リンクをコピー）', checkCallback: run('sho') });
+    this.registerEvent(
+      this.app.workspace.on('editor-menu', (menu, _editor, view) => {
+        if (!(view instanceof MarkdownView)) return;
+        const r = local.selectionIn(view);
+        if (!r) return;
+        menu.addItem(i => i.setTitle('註を付ける').setIcon('message-square-quote').onClick(() => void local.create('chu', r)));
+        menu.addItem(i => i.setTitle('照らす（リンクをコピー）').setIcon('star').onClick(() => void local.create('sho', r)));
+      }),
+    );
+    this.registerEvent(this.app.workspace.on('layout-change', () => local.prune()));
+    // 註ノートでコメントのタグを書き換えたら、カードの色・タグもすぐ変える（保存を待たない）
+    let restyleTimer: number | undefined;
+    this.registerEvent(
+      this.app.workspace.on('editor-change', (editor, info) => {
+        const path = info.file?.path;
+        if (!path || !this.service.isNotePath(path)) return;
+        window.clearTimeout(restyleTimer);
+        restyleTimer = window.setTimeout(() => this.restyleCards(path, editor.getValue()), 300);
+      }),
+    );
+    this.registerEvent(
+      this.app.metadataCache.on('changed', file => {
+        if (this.service.isNotePath(file.path)) {
+          local.invalidateLinks();
+          void this.localPanel.notesChanged();
+        }
+      }),
+    );
+  }
+
   private registerVaultEvents() {
     const changed = async (path: string) => {
+      if (this.service.isNotePath(path)) {
+        this.local.noteModified(path);
+        const f = this.app.vault.getAbstractFileByPath(path);
+        if (f instanceof TFile) this.restyleCards(path, await this.app.vault.cachedRead(f));
+      } else if (path.endsWith('.md')) this.local.fileModified(path);
       const r = await this.service.fileChanged(path);
       if (r !== undefined) this.server?.noteChanged(path, r);
     };
@@ -203,12 +290,14 @@ export default class ObsidiannotPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on('delete', f => {
         this.service.fileDeleted(f.path);
+        this.local.invalidateLinks();
         if (this.service.isNotePath(f.path)) this.server?.noteChanged(f.path, null);
       }),
     );
     this.registerEvent(
       this.app.vault.on('rename', (f, old) => {
         this.service.fileRenamed(old, f.path);
+        this.local.invalidateLinks();
         if (this.service.isNotePath(old)) this.server?.noteChanged(old, null);
         void changed(f.path);
       }),
@@ -220,11 +309,25 @@ export default class ObsidiannotPlugin extends Plugin {
     const { config, error } = parseStyleConfig(this.settings.stylesYaml || DEFAULT_STYLES_YAML);
     this.styles = config;
     this.stylesError = error;
+    this.localStyleEl ??= document.head.createEl('style', { attr: { id: 'obsidiannot-local-styles' } });
+    this.localStyleEl.textContent = buildLocalCss(config);
+  }
+
+  /** 註ノートを開いているビューのカードの色・タグを、ノートの本文に合わせる */
+  restyleCards(path: string, text: string) {
+    const dark = document.body.classList.contains('theme-dark');
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const v = leaf.view;
+      if (v instanceof MarkdownView && v.file?.path === path) restyleCards(v.containerEl, text, this.styles, dark);
+    }
   }
 
   /** スタイル・表示設定の変更を反映する */
   refreshViews(stylesChanged: boolean) {
-    if (stylesChanged) this.server?.broadcast('stylesChanged', { styles: this.styles });
+    if (stylesChanged) {
+      this.server?.broadcast('stylesChanged', { styles: this.styles });
+      this.local.reloadAll();
+    }
     for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
       const v = leaf.view;
       if (v instanceof MarkdownView) v.previewMode.rerender(true);
@@ -338,6 +441,10 @@ export default class ObsidiannotPlugin extends Plugin {
   }
 
   reveal(path: string, a: AnnotationData) {
+    if (isLocalSource(a.source)) {
+      void this.local.reveal(path, String(a.id));
+      return;
+    }
     const note = this.app.vault.getAbstractFileByPath(path);
     const q = a.selector.find((s): s is TextQuoteSelector => s.type === 'TextQuoteSelector');
     const url = textFragmentUrl(a.source, quoteOf(a), q?.prefix, q?.suffix);
@@ -512,6 +619,17 @@ class ObsidiannotSettingTab extends PluginSettingTab {
       .addText(t =>
         t.setValue(p.settings.folder).onChange(async v => {
           p.settings.folder = v.trim() || DEFAULTS.folder;
+          await p.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('vault 内のノートへの註ノートの名前')
+      .setDesc('註ノートの名前を「対象のノート名＋この文字列」にします（同じ名前だとリンクが註ノート自身を指してしまうため）。既にある註ノートの名前は変わりません。')
+      .addText(t =>
+        t.setPlaceholder(DEFAULTS.localSuffix).setValue(p.settings.localSuffix).onChange(async v => {
+          // 空だと対象と同じ名前になるので、既定値に戻す
+          p.settings.localSuffix = v.trim() ? v : DEFAULTS.localSuffix;
           await p.saveSettings();
         }),
       );

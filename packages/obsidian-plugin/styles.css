@@ -82,3 +82,109 @@
 .obsidiannot-status {
   cursor: pointer;
 }
+
+/* ---- vault 内のノートへの註 ---- */
+.obsidiannot-adder {
+  position: fixed;
+  z-index: var(--layer-tooltip, 70);
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 6px);
+  box-shadow: var(--shadow-s);
+}
+.obsidiannot-adder button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  box-shadow: none;
+  background: transparent;
+  font-size: var(--font-ui-small);
+}
+.obsidiannot-adder button:hover {
+  background: var(--background-modifier-hover);
+}
+.obsidiannot-adder svg {
+  width: 16px;
+  height: 16px;
+}
+.obsidiannot-mark {
+  cursor: pointer;
+  border-radius: 2px;
+}
+/* 外側の影は親（コードブロックの枠）に切り取られて角だけ見えるので、カードの内側に描く */
+.obsidiannot-card.is-flash {
+  box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  transition: box-shadow 0.2s, background-color 0.2s;
+}
+.obsidiannot-card.is-orphan,
+.obsidiannot-card.is-tentative {
+  border-left-style: dashed;
+}
+.obsidiannot-card .obsidiannot-local-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.35em;
+  font-size: var(--font-ui-smaller, 0.8em);
+  color: var(--text-warning);
+}
+.obsidiannot-card .obsidiannot-local-status button {
+  font-size: var(--font-ui-smaller, 0.8em);
+  height: auto;
+  padding: 2px 8px;
+}
+.obsidiannot-card .obsidiannot-original {
+  color: var(--text-faint);
+  text-decoration: underline dotted;
+  cursor: help;
+}
+/*
+ * サイドバーの註ノートでは、行番号の設定が有効でも行番号を出さない。
+ * CodeMirror の既定のテーマが .cm-gutter に display: flex !important を付けているので、こちらも !important にする
+ */
+.obsidiannot-local-leaf .cm-gutter.cm-lineNumbers {
+  display: none !important;
+}
+/*
+ * 行番号の列を消しても、列を入れる枠（.cm-gutters）と、その右の余白（--file-folding-offset）が残る。
+ * 枠に行番号しかなければ枠ごと消す（ほかのプラグインの列があれば、その列は残す）
+ */
+.obsidiannot-local-leaf .cm-gutters:not(:has(.cm-gutter:not(.cm-lineNumbers))) {
+  display: none !important;
+}
+.obsidiannot-local-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.obsidiannot-local-banner button {
+  font-size: var(--font-ui-smaller);
+  height: auto;
+  padding: 2px 8px;
+  color: var(--text-warning);
+}
+.obsidiannot-local-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+}
+.obsidiannot-local-empty-title {
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
+.obsidiannot-local-empty-hint {
+  color: var(--text-faint);
+  margin-top: 6px;
+}

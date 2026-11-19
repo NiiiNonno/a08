@@ -227,8 +227,9 @@ test('照: ハイライトとブロック ID が保存され、リンクがコ�
   // 余白マーカー
   await expect(page.locator('obsidiannot-ui .marker')).toHaveCount(2);
 
-  // 既存の註（ID なし）のハイライトをクリックすると、ID が付いてリンクがコピーされる
-  expect(parseNote(text).annotations[0].blockId).toBeUndefined();
+  // 既存の註のハイライトをクリックすると、その ID へのリンクがコピーされる（ID は作ったときから付いている）
+  const firstId = parseNote(text).annotations[0].blockId;
+  expect(firstId).toMatch(/^[a-z0-9]{6}$/);
   await page.evaluate(() => navigator.clipboard.writeText(''));
   const box = await page.evaluate(() => {
     const r = document.createRange();
@@ -237,8 +238,8 @@ test('照: ハイライトとブロック ID が保存され、リンクがコ�
     return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
   });
   await page.mouse.click(box.x, box.y);
-  await expect.poll(async () => parseNote((await readOnlyNote()).text).annotations[0]?.blockId).toMatch(/^[a-z0-9]{6}$/);
   const first = parseNote((await readOnlyNote()).text).annotations[0];
+  expect(first.blockId).toBe(firstId);
   expect(first.comment).toBe('ここが要点。 #重要');
   await expect.poll(() => clipboard(page)).toBe(`[[${name}#^${first.blockId}]]`);
   await page.close();
