@@ -20,13 +20,21 @@ import {
   type RequestMap,
   type RequestType,
   type Response,
+  type StyleConfig,
   type ThemeInfo,
+  type Appearance,
 } from '@a08/core';
 import type { NoteService } from './note-service.ts';
 
 export type HostHooks = {
   vaultName(): string;
   theme(): ThemeInfo;
+  /** タグ別のハイライト設定 */
+  styles(): StyleConfig;
+  /** ブロックへの内部リンク（[[ノート#^id]] など） */
+  linkTo(path: string, blockId: string): string;
+  /** サイドパネル用の CSS 一式（なければ null） */
+  appearance?(): Appearance | null;
   /** markdown → HTML（Obsidian のレンダラー） */
   render(path: string, content: string): Promise<string>;
   openInObsidian(path: string, id?: string): Promise<void>;
@@ -66,7 +74,7 @@ export class AnnotationServer {
     const { port } = this.opts;
     const http = createServer((_req, res) => {
       res.writeHead(404, { 'content-type': 'text/plain' });
-      res.end('a08 annotation server\n');
+      res.end('Obsidiannot server\n');
     });
     const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
 
@@ -176,7 +184,7 @@ export class AnnotationServer {
         result = {
           vault: hooks.vaultName(),
           folder: service.folder,
-          styles: await service.getStyles(),
+          styles: hooks.styles(),
           theme: hooks.theme(),
           version: PROTOCOL_VERSION,
         };
@@ -194,9 +202,31 @@ export class AnnotationServer {
         }
         const r = await service.createAnnotation(cp);
         this.noteChangedAfterReply(r.note.path, r.note);
-        result = r;
+        result = { note: r.note, id: r.id, ...(r.blockId ? { link: hooks.linkTo(r.note.path, r.blockId) } : {}) };
         break;
       }
+      case 'linkToAnnotation': {
+        const r = await service.ensureBlockId(str('path'), str('id'));
+        if (r.changed) this.noteChangedAfterReply(r.note.path, r.note);
+        result = { note: r.note, link: hooks.linkTo(r.note.path, r.blockId) };
+        break;
+      }
+      case 'renameNote': {
+        const from = str('path');
+        const r = await service.renameNote(from, str('name'));
+        if (r.changed) {
+          this.noteChangedAfterReply(from, null);
+          this.noteChangedAfterReply(r.note.path, r.note);
+        }
+        result = { note: r.note };
+        break;
+      }
+      case 'appearance':
+        result = hooks.appearance?.() ?? null;
+        break;
+      case 'getResource':
+        result = await service.readResource(str('path'));
+        break;
       case 'updateComment': {
         const r = await service.updateComment(str('path'), str('id'), str('comment'));
         this.noteChangedAfterReply(r.note.path, r.note);

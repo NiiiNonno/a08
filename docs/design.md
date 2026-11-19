@@ -1,4 +1,4 @@
-# 設計メモ
+# 設計メモ — Obsidiannot（黒曜伝）
 
 ## 目的と方針
 
@@ -17,7 +17,7 @@ Chrome 拡張 (MV3)
 Obsidian プラグイン
   AnnotationServer（packages/server）── 要求の処理、変更の配信
   NoteService ── URI 索引、ノートの作成・追記・コメント更新・削除・保存（楽観的排他）
-  註カード描画（```annotation のコードブロック処理）、スタイル見本（```annotation-styles）
+  註カード描画（```obsidiannot のコードブロック処理）、Obsidian の CSS 一式の提供、照のリンク生成
 ```
 
 通信方式に Local REST API プラグインを使わなかったのは、(1) Obsidian → ブラウザ方向の通知（reveal、外部編集の反映）が必要、(2) 自己署名証明書や API キーの扱いを避けたい、ため。
@@ -25,12 +25,32 @@ Obsidian プラグイン
 ## 註の形式
 
 - ノート 1 つ = 文書 1 つ。frontmatter の `titles` / `uris` は配列（どちらも複数可）
-- 註 1 つ = ` ```annotation ` ブロック（YAML）＋直後のコメント（通常の markdown）
+- 註 1 つ = ` ```obsidiannot ` ブロック（YAML）＋（ブロック ID 行）＋直後のコメント（通常の markdown）
   - コメントを YAML の外に置くことで、wikilink・タグ・バックリンク・検索がそのまま効く
-  - コメントの範囲は「次の annotation ブロック」か「見出し行」の手前まで
+  - コメントの範囲は「次の obsidiannot ブロック」か「見出し行」の手前まで
+- ノートの先頭にタイトルの見出しは書かない（タイトルは frontmatter の `titles` だけ）
 - selector は W3C Web Annotation / Hypothesis と同じ形（TextQuote / TextPosition / Range、PDF 用に PageSelector も型だけ用意）
 - 未知のキーはブロック内に保持して書き戻す（将来の拡張用）
 - YAML にバッククォート列が含まれる場合は、フェンスを長くして壊れないようにする
+
+## 照（ブロック ID とリンク）
+
+註を別のノートから参照するために、註ブロックを直接コピーするのではなく、Obsidian のブロック参照を使う。
+
+```
+```obsidiannot
+…
+```
+^k3x9qa
+
+コメント
+```
+
+- ID は閉じフェンスの次の行に `^xxxx` だけを書き、その次は空行（Obsidian がブロック ID と認識する形）。英小文字と数字 6 文字で、ノート内で重複しないように作る
+- 選択時の「照」は、ハイライトとして保存すると同時に ID を付ける。既存の註はハイライトのクリックで ID を付ける（既にあればそのまま）
+- リンクはプラグインが `app.fileManager.generateMarkdownLink` で作る（ユーザーのリンク形式の設定＝wikilink / markdown・最短パスなどに従う）
+- クリップボードへはまず `navigator.clipboard`、使えないページ（http など）では拡張の offscreen document で書く
+- リンクのコピーは拡張の設定で無効にできる（無効なら照はただのハイライト）
 
 ## URI の照合
 
@@ -69,6 +89,7 @@ UI（註ボタン、入力欄、余白マーカー、通知）は `<html>` 直�
 - タグごとにハイライト名（`a08-t0`、`a08-t1`、…）を分け、該当する全スタイルに Range を登録する。重ねがけできる（背景＋下線など）
 - 優先順位は `_styles.md` の記述順（`Highlight.priority`）
 - タグのない註は `a08-default`。ホバー中・フォーカス中は `a08-hover` / `a08-focus`
+- 設定は Obsidian プラグインの設定画面（YAML。data.json に保存）。vault にファイルとしては置かない
 - 使えるプロパティは仕様上 color / background-color / text-decoration 系 / text-shadow のみ。値はサニタイズしてから CSS にする
 - クリック判定は `caretPositionFromPoint` と `Range.getClientRects()` で行う（ハイライト自体はイベントを持たない）
 - DOM の変化（動的な読み込みなど）は MutationObserver で監視し、壊れた註や未特定の註があれば再アンカリングする
@@ -76,16 +97,30 @@ UI（註ボタン、入力欄、余白マーカー、通知）は `<html>` 直�
 
 ## サイドパネル
 
-- 表示モード: プラグインが `MarkdownRenderer.render` で描画した HTML を DOMPurify で無害化して表示。Obsidian のテーマの CSS 変数も受け取って適用する（ダークモードも Obsidian に追従）
+- サイドパネルはウィンドウに 1 つ（`sidePanel.setOptions` をタブ別には使わない）。タブ別に設定すると Chrome がタブごとに別のパネルを作り、裏に回ったパネルが止まって表示が古くなるため。拡張が入れないタブ（`chrome://`、新しいタブなど）では、パネルに控えめな一文だけを出す
+- 閲覧中のタブの読み込みは、呼ぶたびに番号を振って最後のものだけを使う。読み込み途中のページは数秒待ち、ページ側の準備ができた通知でも読み直す。同じノート・同じ版なら描き直さない
+- 前回の Obsidian のテーマの色を覚えておき、パネルを開いた最初の描画から使う（白く光らないように）
+- 拡張内のメッセージで、接続状態の「問い合わせ」（`status`）と「変化の通知」（`statusChanged`）は別の名前にする。同じ名前だと、ページ側からの問い合わせをパネルが通知と取り違えて状態が壊れる
+- 拡張の読み込み前から開いていたタブなど、content script がいないタブでは、パネルが `scripting.executeScript` で入れ直す（二重に入った場合は古いほうを片付ける）
+- 表示モード: プラグインが `MarkdownRenderer.render` で描画した HTML を DOMPurify で無害化して、Shadow DOM の中に表示する
+  - Obsidian の画面に読み込まれた CSS 一式（本体・テーマ・スニペット・各プラグイン）を受け取り、`body`/`html` のセレクタを Shadow DOM 内の要素に書き換えて適用する。コールアウトやテーマの見た目も Obsidian と同じになる
+  - Obsidian の body の class（`theme-dark` など）も写す。CSS が変わると（`css-change`）版が変わり、パネルが取り直す
+  - vault 内の画像（`app://`）は拡張から読めないので、プラグインが vault 相対パスを `data-obsidiannot-resource` に入れ、パネルが `getResource` で受け取って blob: URL にする
+  - 註カードのクリックは、パネルではページ内の該当箇所へのスクロールになる（Obsidian ではブラウザで開く）
+- ボタンはアイコン（Lucide。Obsidian と同じアイコン集）。編集は `pen-line`、表示に戻るのは `book-open`
+- ファイル名をクリックすると改名できる（プラグインは `fileManager.renameFile` を使うので、リンクも設定どおり更新される）
 - 編集モード: CodeMirror 6（Obsidian と同じエディタ基盤）。入力が 0.8 秒止まると保存。保存時に版（内容のハッシュ）を送り、Obsidian 側で変更されていれば競合として確認を出す
 - 註の行には薄い背景を付ける。ページ側でハイライトをクリックすると、対応する位置にカーソルを移す
 
 ## 既知の制限・未実装
 
-- **Obsidian 上での実機確認はまだ**（プラグインはビルドと型検査のみ。プロトコルとノート操作は開発用サーバーと E2E で確認済み）
+- サイドパネルの見た目は Obsidian の CSS をそのまま使うが、完全には同じにならないものがある
+  - フォント（@font-face は Shadow DOM 内で効かず、app:// の URL も読めない）。Obsidian 既定の Inter などは OS にあるフォントで代わる
+  - JavaScript で動く描画（Dataview のクエリ、Excalidraw など）や、描画後に時間をかけて変わるもの
+  - 画像以外の埋め込み（PDF・音声・動画）
+- 拡張の UI の文言は日本語のみ（拡張の名前・説明だけ Chrome の表示言語に従う）。ボタンはアイコンにして、言語に依存しにくくしている
 - PDF への註（拡張に PDF.js ビューアを同梱し、Hypothesis の `anchoring/pdf.ts` を移植する予定。selector の型は用意済み）
 - vault 内 md への註（Obsidian 内で左に該当箇所を出す機能）
-- サイドパネルでの vault 内画像の表示（`app://` URL は拡張から読めない）
 - Hypothesis から書き出した既存の註の取り込み
 - iframe 内の本文には未対応（content script は最上位フレームのみ）
 - Wayland など、OS 側がウィンドウの前面化を制限する環境では、reveal でタブは切り替わっても Chrome のウィンドウが前に出ないことがある

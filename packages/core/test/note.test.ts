@@ -3,7 +3,9 @@ import {
   addToFrontmatter,
   appendAnnotation,
   createNoteContent,
+  ensureBlockId,
   fileNameFromTitle,
+  newBlockId,
   newAnnotationId,
   parseNote,
   serializeAnnotation,
@@ -48,26 +50,59 @@ describe('note', () => {
     const md = [
       '---', 'titles: [T]', 'uris: [https://e.example/]', '---',
       '# T',
-      '```annotation', 'id: a', 'source: s', 'selector: []', '```',
+      '```obsidiannot', 'id: a', 'source: s', 'selector: []', '```',
       'comment a',
       '',
       '## 次の節',
       'not a comment',
-      '```annotation', 'id: b', 'selector: []', '```',
-      '```js', '```annotation', '```',
+      '```obsidiannot', 'id: b', 'selector: []', '```',
+      '```js', '```obsidiannot', '```',
       'comment b #疑問',
     ].join('\n');
     const note = parseNote(md);
     expect(note.annotations.map(a => [a.id, a.comment])).toEqual([
       ['a', 'comment a'],
-      ['b', '```js\n```annotation\n```\ncomment b #疑問'],
+      ['b', '```js\n```obsidiannot\n```\ncomment b #疑問'],
     ]);
     expect(note.annotations[1].tags).toEqual(['疑問']);
     expect(note.annotations[0].endLine).toBe(10);
   });
 
+  it('does not write a title heading into new notes', () => {
+    const c = createNoteContent({ titles: ['Paper'], uris: ['https://a.example/x'] });
+    expect(c).not.toMatch(/^#/m);
+    expect(c.endsWith('---\n')).toBe(true);
+  });
+
+  it('reads and writes block ids after the block (照)', () => {
+    const { text } = appendAnnotation(createNoteContent({ titles: ['P'], uris: ['https://a.example/'] }), ann, 'コメント #重要', 'k3x9qa');
+    // ブロック → ^id → 空行 → コメント（Obsidian がブロック ID と認識する形）
+    expect(text).toContain('```\n^k3x9qa\n\nコメント #重要\n');
+    const a = parseNote(text).annotations[0];
+    expect(a.blockId).toBe('k3x9qa');
+    expect(a.comment).toBe('コメント #重要');
+    // YAML には書かない
+    expect(serializeAnnotation(a)).not.toContain('k3x9qa');
+    expect(serializeAnnotation(a)).not.toContain('headEndLine');
+  });
+
+  it('adds a block id to an existing annotation', () => {
+    const base = appendAnnotation(createNoteContent({ titles: ['P'], uris: [] }), ann, 'すぐ下のコメント').text;
+    const r = ensureBlockId(base, ann.id, () => 'abc123')!;
+    expect(r.changed).toBe(true);
+    expect(r.text).toContain('```\n^abc123\n\nすぐ下のコメント');
+    expect(parseNote(r.text).annotations[0]).toMatchObject({ blockId: 'abc123', comment: 'すぐ下のコメント' });
+    // 2 回目は変えない
+    expect(ensureBlockId(r.text, ann.id)).toEqual({ text: r.text, blockId: 'abc123', changed: false });
+    expect(ensureBlockId(base, 'nope')).toBeNull();
+    // コメントがない註
+    const bare = appendAnnotation('', ann).text;
+    expect(parseNote(ensureBlockId(bare, ann.id, () => 'zz9')!.text).annotations[0]).toMatchObject({ blockId: 'zz9', comment: '' });
+    expect(newBlockId()).toMatch(/^[a-z0-9]{6}$/);
+  });
+
   it('reports broken blocks without failing', () => {
-    const note = parseNote('```annotation\nid: [\n```\n\n```annotation\nfoo: 1\n```');
+    const note = parseNote('```obsidiannot\nid: [\n```\n\n```obsidiannot\nfoo: 1\n```');
     expect(note.annotations).toHaveLength(0);
     expect(note.broken).toHaveLength(2);
   });

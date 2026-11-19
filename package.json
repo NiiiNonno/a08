@@ -1,7 +1,7 @@
 {
   "name": "a08",
   "private": true,
-  "description": "Obsidian と Chrome をつなぐローカル註システム",
+  "description": "Obsidiannot（黒曜伝）: Obsidian と Chrome をつなぐローカル註システム",
   "type": "module",
   "workspaces": [
     "packages/core",
@@ -15,7 +15,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "dev-server": "node --experimental-strip-types packages/server/src/dev-server.ts",
-    "install-plugin": "node scripts/install-plugin.mjs"
+    "install-plugin": "node scripts/install-plugin.mjs",
+    "migrate-from-a08": "node scripts/migrate-from-a08.mjs"
   },
   "devDependencies": {
     "@playwright/test": "*",

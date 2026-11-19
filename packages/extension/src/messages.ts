@@ -8,6 +8,8 @@ export type Settings = {
   token: string;
   /** 対訳型翻訳などで挿入される要素。テキストとして扱わない */
   ignoreSelectors: string[];
+  /** 照: ハイライトのクリックでブロックへのリンクをクリップボードにコピーする */
+  copyLink: boolean;
 };
 
 export const DEFAULT_IGNORE_SELECTORS = [
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   port: 27183,
   token: '',
   ignoreSelectors: DEFAULT_IGNORE_SELECTORS,
+  copyLink: true,
 };
 
 export async function loadSettings(): Promise<Settings> {
@@ -53,7 +56,11 @@ export type BgMessage =
   | { kind: 'status' }
   | { kind: 'reconnect' }
   | { kind: 'contentReady' }
-  | { kind: 'openSidePanel' };
+  | { kind: 'openSidePanel' }
+  /** content script が入っていないタブに入れる */
+  | { kind: 'ensureContent'; tabId: number }
+  /** クリップボードへ書く（offscreen document 経由） */
+  | { kind: 'copyText'; text: string };
 
 export type RpcReply<T extends RequestType = RequestType> =
   | { ok: true; result: RequestMap[T]['result'] }
@@ -62,7 +69,8 @@ export type RpcReply<T extends RequestType = RequestType> =
 /** background → content script / side panel */
 export type Broadcast =
   | { kind: 'event'; event: EventType; data: EventMap[EventType] }
-  | { kind: 'status'; status: ConnectionStatus };
+  /** 接続状態の変化の通知（要求の { kind: 'status' } と区別する） */
+  | { kind: 'statusChanged'; status: ConnectionStatus };
 
 /** → content script */
 export type ContentMessage =
@@ -71,6 +79,11 @@ export type ContentMessage =
   | { kind: 'annotateSelection' }
   | { kind: 'hoverAnnotation'; id: string | null }
   | Broadcast;
+
+/** content script / side panel が受けられるかを判定する URL */
+export function isScriptableUrl(url: string | undefined): boolean {
+  return !!url && /^(https?|file):/i.test(url) && !/^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/i.test(url);
+}
 
 /** content script → side panel */
 export type PanelMessage =

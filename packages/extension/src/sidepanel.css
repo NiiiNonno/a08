@@ -30,6 +30,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+html { background: var(--bg); }
 body {
   background: var(--bg);
   color: var(--fg);
@@ -51,6 +52,9 @@ button {
 }
 button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: 0.45; cursor: default; }
+button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; background: transparent; border-color: transparent; color: var(--muted); }
+button.icon:hover:not(:disabled) { color: var(--fg); }
+button svg { display: block; }
 button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 
 header {
@@ -59,13 +63,35 @@ header {
   background: var(--bg);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 10;
 }
 .title-row { display: flex; gap: 8px; align-items: flex-start; }
 .title { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
 .actions { display: flex; gap: 4px; flex-shrink: 0; }
 .sub { color: var(--muted); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
 .sub .warn { color: var(--color-red, #d93025); }
+.sub .filename {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.sub .filename svg { opacity: 0; }
+.sub .filename:hover svg, .sub .filename:focus-visible svg { opacity: 0.8; }
+.sub input.rename {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  width: min(100%, 24em);
+}
 
 .banner {
   margin: 8px 12px 0;
@@ -79,66 +105,8 @@ header {
 .banner .row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 
 main { flex: 1; overflow: auto; }
-#view { padding: 4px 14px 40px; }
-#view:empty { display: none; }
-.empty { color: var(--muted); padding: 16px 14px; }
-.empty kbd {
-  font-family: var(--mono);
-  font-size: 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 4px;
-}
-
-/* Obsidian の描画結果 */
-.markdown-rendered a { color: var(--link); }
-.markdown-rendered code { font-family: var(--mono); background: var(--code-bg); border-radius: 4px; padding: 0 3px; font-size: 0.9em; }
-.markdown-rendered pre { background: var(--code-bg); padding: 8px; border-radius: 6px; overflow: auto; }
-.markdown-rendered pre code { background: none; padding: 0; }
-.markdown-rendered blockquote { margin: 0.5em 0; padding-left: 10px; border-left: 3px solid var(--blockquote-border-color, var(--border)); color: var(--muted); }
-.markdown-rendered h1 { font-size: 1.35em; margin: 0.6em 0 0.4em; }
-.markdown-rendered h2 { font-size: 1.2em; margin: 0.8em 0 0.4em; }
-.markdown-rendered h3 { font-size: 1.05em; }
-.markdown-rendered img { max-width: 100%; }
-.markdown-rendered .tag, .markdown-rendered a.tag {
-  color: var(--tag-color, var(--link));
-  background: var(--tag-background, transparent);
-  border-radius: 1em;
-  padding: 0 0.4em;
-  text-decoration: none;
-}
-.markdown-rendered .copy-code-button,
-.markdown-rendered .edit-block-button,
-.markdown-rendered .frontmatter-container,
-.markdown-rendered .mod-header,
-.markdown-rendered .markdown-preview-pusher { display: none; }
-
-/* 註カード（Obsidian プラグインの描画） */
-.a08-card {
-  --a08-accent: rgba(255, 200, 0, 0.8);
-  border-left: 4px solid var(--a08-accent);
-  background: var(--bg2);
-  border-radius: 4px;
-  padding: 6px 10px;
-  margin: 12px 0 4px;
-  cursor: pointer;
-  transition: box-shadow 0.2s;
-}
-.a08-card:hover { box-shadow: 0 0 0 1px var(--border); }
-.a08-card.flash { box-shadow: 0 0 0 2px var(--accent); }
-.a08-card.orphan { opacity: 0.7; }
-.a08-card.orphan::after {
-  content: "このページ内で該当箇所が見つかりません";
-  display: block;
-  color: var(--faint);
-  font-size: 11px;
-}
-.a08-card .a08-quote { margin: 0; padding: 0; border: none; color: var(--fg); white-space: pre-wrap; }
-.a08-card .a08-context { color: var(--faint); font-size: 0.9em; }
-.a08-card .a08-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; margin-top: 3px; align-items: center; }
-.a08-card .a08-meta a { color: var(--muted); }
-.a08-card .a08-tag { color: var(--tag-color, var(--link)); }
-.a08-card .a08-reveal { display: none; }
+#view { display: block; position: relative; z-index: 0; }
+#view[hidden], #editor[hidden] { display: none !important; }
 
 /* エディタ */
 #editor { height: 100%; }
@@ -146,6 +114,6 @@ main { flex: 1; overflow: auto; }
 #editor .cm-editor.cm-focused { outline: none; }
 #editor .cm-scroller { font-family: var(--font); line-height: 1.6; }
 #editor .cm-content { padding: 10px 6px 40vh; }
-#editor .cm-line.a08-ann-line { background: color-mix(in srgb, var(--accent) 7%, transparent); }
-#editor .cm-line.a08-flash { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+#editor .cm-line.obsidiannot-ann-line { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+#editor .cm-line.obsidiannot-flash { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .save-state { color: var(--faint); font-size: 11px; margin-left: 4px; }

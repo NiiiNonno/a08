@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "a08 註",
-  "short_name": "a08",
-  "version": "0.1.0",
-  "description": "Web ページへの註を Obsidian の vault に保存し、サイドパネルでノートを表示・編集します。",
+  "name": "__MSG_extName__",
+  "short_name": "__MSG_extName__",
+  "version": "0.2.0",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage", "tabs", "sidePanel", "alarms", "contextMenus"],
+  "permissions": ["storage", "tabs", "sidePanel", "alarms", "contextMenus", "scripting", "offscreen", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
@@ -28,7 +29,7 @@
   },
   "options_page": "options.html",
   "action": {
-    "default_title": "a08 註",
+    "default_title": "__MSG_extName__",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png"
@@ -37,7 +38,7 @@
   "commands": {
     "annotate-selection": {
       "suggested_key": { "default": "Alt+Shift+A" },
-      "description": "選択範囲に註をつける"
+      "description": "__MSG_annotateSelection__"
     }
   }
 }

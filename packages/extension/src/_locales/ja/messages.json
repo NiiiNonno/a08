@@ -1,0 +1,5 @@
+{
+  "extName": { "message": "黒曜伝" },
+  "extDescription": { "message": "Web ページへの註を Obsidian の vault に保存し、サイドパネルでノートを表示・編集します。" },
+  "annotateSelection": { "message": "選択範囲に註をつける" }
+}

@@ -1,0 +1,5 @@
+{
+  "extName": { "message": "Obsidiannot" },
+  "extDescription": { "message": "Annotate web pages into your Obsidian vault, and view or edit the note in the side panel." },
+  "annotateSelection": { "message": "Annotate selection" }
+}

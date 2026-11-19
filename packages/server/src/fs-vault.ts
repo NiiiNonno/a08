@@ -1,7 +1,7 @@
 /**
  * ディレクトリを vault とみなす VaultAdapter（開発用サーバーとテスト用）。
  */
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { watch, type FSWatcher } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import type { VaultAdapter } from './note-service.ts';
@@ -61,6 +61,19 @@ export class FsVault implements VaultAdapter {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    await mkdir(dirname(this.abs(to)), { recursive: true });
+    await rename(this.abs(from), this.abs(to));
+  }
+
+  async readBinary(p: string): Promise<Uint8Array | null> {
+    try {
+      return new Uint8Array(await readFile(this.abs(p)));
+    } catch {
+      return null;
     }
   }
 

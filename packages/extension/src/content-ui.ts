@@ -12,6 +12,8 @@ export const UI_CSS = `
   box-shadow: 0 4px 16px rgba(0,0,0,.18);
 }
 .adder { display: flex; padding: 2px; gap: 2px; }
+button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 5px 7px; }
+button svg { display: block; }
 .adder[hidden], .editor[hidden], .toast[hidden] { display: none; }
 button {
   font: inherit;
@@ -56,6 +58,16 @@ button.primary:hover { background: #255fc4; }
   padding: 8px 14px;
 }
 .toast.error { border-color: #d93025; color: #b42318; }
+.toast code {
+  display: block;
+  margin-top: 2px;
+  font: 12px ui-monospace, Menlo, Consolas, monospace;
+  opacity: .75;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .markers { position: absolute; top: 0; left: 0; width: 0; height: 0; }
 .marker {
   position: absolute;

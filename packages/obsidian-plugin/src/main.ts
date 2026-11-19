@@ -1,5 +1,6 @@
 import {
   Component,
+  FileSystemAdapter,
   MarkdownRenderer,
   MarkdownView,
   Notice,
@@ -7,36 +8,49 @@ import {
   PluginSettingTab,
   Setting,
   TFile,
+  getLinkpath,
   normalizePath,
   type App,
 } from 'obsidian';
 import {
-  DEFAULT_PORT,
-  STYLES_LANG,
   ANNOTATION_LANG,
+  DEFAULT_PORT,
   DEFAULT_STYLES,
+  DEFAULT_STYLES_YAML,
   parseNote,
+  parseStyleConfig,
   quoteOf,
-  styleConfigFromMarkdown,
   textFragmentUrl,
   type AnnotationData,
+  type Appearance,
   type StyleConfig,
   type TextQuoteSelector,
   type ThemeInfo,
 } from '@a08/core';
-import { AnnotationServer, NoteService } from '@a08/server';
+import { AnnotationServer, NoteService, contentVersion } from '@a08/server';
 import { ObsidianVault } from './obsidian-vault.ts';
 import { renderCard, renderStylesPreview } from './card.ts';
+import { collectAppearance } from './appearance.ts';
 
 type Settings = {
   port: number;
   token: string;
   folder: string;
+  /** タグ別ハイライトの設定（YAML） */
+  stylesYaml: string;
+  /** 註カードに引用の前後の文脈を出す */
+  showContext: boolean;
 };
 
-const DEFAULTS: Settings = { port: DEFAULT_PORT, token: '', folder: 'annotations' };
+const DEFAULTS: Settings = {
+  port: DEFAULT_PORT,
+  token: '',
+  folder: 'obsidiannot',
+  stylesYaml: DEFAULT_STYLES_YAML,
+  showContext: false,
+};
 
-/** サイドパネルへ渡す Obsidian の CSS 変数 */
+/** サイドパネルの枠（ヘッダーなど）に使う Obsidian の CSS 変数 */
 const THEME_VARS = [
   '--background-primary',
   '--background-primary-alt',
@@ -69,10 +83,6 @@ const THEME_VARS = [
   '--font-interface',
   '--font-text-size',
   '--line-height-normal',
-  '--h1-size',
-  '--h2-size',
-  '--h3-size',
-  '--h4-size',
   '--radius-s',
   '--radius-m',
   '--color-accent',
@@ -82,24 +92,29 @@ const THEME_VARS = [
   '--color-yellow',
 ];
 
+const LOG = '[obsidiannot]';
+
 function randomToken(): string {
   const b = new Uint8Array(24);
   crypto.getRandomValues(b);
   return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
 }
 
-export default class AnnotationPlugin extends Plugin {
+export default class ObsidiannotPlugin extends Plugin {
   settings: Settings = { ...DEFAULTS };
   service!: NoteService;
   server: AnnotationServer | null = null;
   styles: StyleConfig = DEFAULT_STYLES;
+  stylesError: string | undefined;
   private statusEl: HTMLElement | null = null;
   /** render() 中のノート本文（コードブロック処理からタグを引くため） */
   private renderTexts = new Map<string, string>();
   private serverError: string | null = null;
+  private appearanceCache: Appearance | null = null;
 
   async onload() {
     await this.loadSettings();
+    this.applyStylesYaml();
     this.service = new NoteService(new ObsidianVault(this.app), { folder: this.settings.folder });
 
     this.registerMarkdownCodeBlockProcessor(ANNOTATION_LANG, (source, el, ctx) => {
@@ -109,20 +124,31 @@ export default class AnnotationPlugin extends Plugin {
         noteText: info?.text ?? this.renderTexts.get(ctx.sourcePath) ?? null,
         styles: this.styles,
         dark: document.body.classList.contains('theme-dark'),
+        showContext: this.settings.showContext,
         onReveal: a => this.reveal(ctx.sourcePath, a),
       });
     });
-    this.registerMarkdownCodeBlockProcessor(STYLES_LANG, (source, el) => {
-      const { config, error } = styleConfigFromMarkdown('```' + STYLES_LANG + '\n' + source + '\n```');
-      renderStylesPreview(config, el, document.body.classList.contains('theme-dark'), error);
-    });
 
     this.statusEl = this.addStatusBarItem();
-    this.statusEl.addClass('a08-status');
+    this.statusEl.addClass('obsidiannot-status');
     this.statusEl.onClickEvent(() => this.openSettings());
     this.registerInterval(window.setInterval(() => this.updateStatus(), 3000));
+    // アクセントカラーなど、body のインライン style の変更を拡張に伝える
+    let lastInline = '';
+    this.registerInterval(
+      window.setInterval(() => {
+        const inline = `${document.documentElement.style.cssText}\n${document.body.style.cssText}`;
+        if (inline === lastInline) return;
+        const first = lastInline === '';
+        lastInline = inline;
+        if (!first && this.server) {
+          this.appearanceCache = null;
+          this.server.broadcast('themeChanged', { theme: this.theme() });
+        }
+      }, 2000),
+    );
 
-    this.addSettingTab(new AnnotationSettingTab(this.app, this));
+    this.addSettingTab(new ObsidiannotSettingTab(this.app, this));
     this.addCommand({
       id: 'restart-server',
       name: '註サーバーを再起動',
@@ -132,15 +158,6 @@ export default class AnnotationPlugin extends Plugin {
       id: 'copy-token',
       name: '拡張用の接続トークンをコピー',
       callback: () => void this.copyToken(),
-    });
-    this.addCommand({
-      id: 'open-styles',
-      name: 'ハイライト設定（_styles.md）を開く',
-      callback: async () => {
-        await this.service.ensureStylesFile();
-        const f = this.app.vault.getAbstractFileByPath(this.service.stylesPath);
-        if (f instanceof TFile) await this.app.workspace.getLeaf(false).openFile(f);
-      },
     });
     this.addCommand({
       id: 'reveal-annotation-at-cursor',
@@ -157,8 +174,6 @@ export default class AnnotationPlugin extends Plugin {
     });
 
     this.app.workspace.onLayoutReady(async () => {
-      await this.service.ensureStylesFile().catch(e => console.error('[a08]', e));
-      await this.reloadStyles();
       await this.service.rebuildIndex();
       this.registerVaultEvents();
       await this.startServer();
@@ -166,6 +181,7 @@ export default class AnnotationPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on('css-change', () => {
+        this.appearanceCache = null;
         this.server?.broadcast('themeChanged', { theme: this.theme() });
       }),
     );
@@ -179,12 +195,7 @@ export default class AnnotationPlugin extends Plugin {
   private registerVaultEvents() {
     const changed = async (path: string) => {
       const r = await this.service.fileChanged(path);
-      if (r === 'styles') {
-        await this.reloadStyles();
-        this.server?.broadcast('stylesChanged', { styles: this.styles });
-      } else if (r !== undefined) {
-        this.server?.noteChanged(path, r);
-      }
+      if (r !== undefined) this.server?.noteChanged(path, r);
     };
     this.registerEvent(this.app.vault.on('modify', f => void changed(f.path)));
     this.registerEvent(this.app.vault.on('create', f => void changed(f.path)));
@@ -203,18 +214,51 @@ export default class AnnotationPlugin extends Plugin {
     );
   }
 
-  async reloadStyles() {
-    this.styles = await this.service.getStyles();
+  /** settings.stylesYaml を読み直す。壊れていれば既定値 */
+  applyStylesYaml() {
+    const { config, error } = parseStyleConfig(this.settings.stylesYaml || DEFAULT_STYLES_YAML);
+    this.styles = config;
+    this.stylesError = error;
+  }
+
+  /** スタイル・表示設定の変更を反映する */
+  refreshViews(stylesChanged: boolean) {
+    if (stylesChanged) this.server?.broadcast('stylesChanged', { styles: this.styles });
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const v = leaf.view;
+      if (v instanceof MarkdownView) v.previewMode.rerender(true);
+    }
+    this.app.workspace.updateOptions();
   }
 
   theme(): ThemeInfo {
+    // アクセントカラーの変更は css-change が来ないことがあるので、インライン style の変化で取り直す
+    const inline = `${document.documentElement.style.cssText}\n${document.body.style.cssText}`;
+    if (this.appearanceCache && inline !== `${this.appearanceCache.rootStyle}\n${this.appearanceCache.bodyStyle}`) {
+      this.appearanceCache = null;
+    }
     const cs = getComputedStyle(document.body);
     const vars: Record<string, string> = {};
     for (const v of THEME_VARS) {
       const val = cs.getPropertyValue(v).trim();
       if (val) vars[v] = val;
     }
-    return { dark: document.body.classList.contains('theme-dark'), vars };
+    return {
+      dark: document.body.classList.contains('theme-dark'),
+      vars,
+      cssVersion: this.appearance().version,
+    };
+  }
+
+  appearance(): Appearance {
+    if (!this.appearanceCache) {
+      const a = collectAppearance(document);
+      this.appearanceCache = {
+        ...a,
+        version: contentVersion(`${a.bodyClass}\n${a.rootStyle}\n${a.bodyStyle}\n${a.css}`),
+      };
+    }
+    return this.appearanceCache;
   }
 
   async render(path: string, content: string): Promise<string> {
@@ -226,15 +270,55 @@ export default class AnnotationPlugin extends Plugin {
       // frontmatter はプロパティ表示になるので除く
       const body = content.replace(/^---\r?\n[\s\S]*?\r?\n(---|\.\.\.)\r?\n/, '');
       await MarkdownRenderer.render(this.app, body, el, path, comp);
-      // 埋め込みなどの非同期描画を少し待つ
-      await new Promise(r => setTimeout(r, 50));
-      // 画像などの vault 内リソースは app:// URL なので、拡張からは見えない。
-      // data-href を残しておき、サイドパネル側で扱う
+      // 埋め込みなどの非同期描画を待つ（最大 0.5 秒）
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 50));
+        if (!el.querySelector('.internal-embed:not(.is-loaded)')) break;
+      }
+      this.markResources(el, path);
       return el.innerHTML;
     } finally {
       comp.unload();
       this.renderTexts.delete(path);
     }
+  }
+
+  /**
+   * vault 内の画像は app:// URL なので拡張からは読めない。
+   * vault 相対パスを data-obsidiannot-resource に入れておき、サイドパネルが getResource で取る。
+   */
+  private markResources(el: HTMLElement, sourcePath: string) {
+    const adapter = this.app.vault.adapter;
+    const base = adapter instanceof FileSystemAdapter ? adapter.getBasePath().replace(/\\/g, '/').replace(/^\/+/, '') : null;
+    for (const img of Array.from(el.querySelectorAll('img'))) {
+      const src = img.getAttribute('src') ?? '';
+      if (/^(https?:|data:|blob:)/i.test(src)) continue;
+      let path: string | null = null;
+      const embed = img.closest('.internal-embed')?.getAttribute('src');
+      if (embed) {
+        const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(embed.split('|')[0]), sourcePath);
+        if (dest) path = dest.path;
+      }
+      if (!path && base && src.startsWith('app:')) {
+        try {
+          const abs = decodeURIComponent(new URL(src).pathname).replace(/^\/+/, '');
+          if (abs.startsWith(`${base}/`)) path = abs.slice(base.length + 1);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (path) {
+        img.setAttribute('data-obsidiannot-resource', path);
+        img.removeAttribute('src');
+      }
+    }
+  }
+
+  /** ブロックへの内部リンク。ユーザーのリンク形式の設定（wikilink / markdown）に従う */
+  linkTo(path: string, blockId: string): string {
+    const f = this.app.vault.getAbstractFileByPath(path);
+    if (f instanceof TFile) return this.app.fileManager.generateMarkdownLink(f, '', `#^${blockId}`);
+    return `[[${path.split('/').pop()!.replace(/\.md$/, '')}#^${blockId}]]`;
   }
 
   reveal(path: string, a: AnnotationData) {
@@ -287,13 +371,16 @@ export default class AnnotationPlugin extends Plugin {
       hooks: {
         vaultName: () => this.app.vault.getName(),
         theme: () => this.theme(),
+        styles: () => this.styles,
+        linkTo: (p, id) => this.linkTo(p, id),
+        appearance: () => this.appearance(),
         render: (p, c) => this.render(p, c),
         openInObsidian: (p, id) => this.openInObsidian(p, id),
         openLink: async (link, sourcePath) => {
           await this.app.workspace.openLinkText(link, sourcePath, false);
           window.focus();
         },
-        log: (m, ...a) => console.debug('[a08]', m, ...a),
+        log: (m, ...a) => console.debug(LOG, m, ...a),
       },
     });
     try {
@@ -302,7 +389,7 @@ export default class AnnotationPlugin extends Plugin {
     } catch (e) {
       this.serverError = e instanceof Error ? e.message : String(e);
       new Notice(`註サーバーを起動できません（ポート ${this.settings.port}）: ${this.serverError}`);
-      console.error('[a08]', e);
+      console.error(LOG, e);
     }
     this.updateStatus();
   }
@@ -329,7 +416,7 @@ export default class AnnotationPlugin extends Plugin {
     } else {
       const n = this.server.clientCount;
       this.statusEl.setText(n ? `註: 接続 ${n}` : '註: 待機中');
-      this.statusEl.setAttr('title', `ws://127.0.0.1:${this.settings.port}`);
+      this.statusEl.setAttr('title', `Obsidiannot — ws://127.0.0.1:${this.settings.port}`);
     }
   }
 
@@ -348,9 +435,9 @@ export default class AnnotationPlugin extends Plugin {
   }
 }
 
-class AnnotationSettingTab extends PluginSettingTab {
-  plugin: AnnotationPlugin;
-  constructor(app: App, plugin: AnnotationPlugin) {
+class ObsidiannotSettingTab extends PluginSettingTab {
+  plugin: ObsidiannotPlugin;
+  constructor(app: App, plugin: ObsidiannotPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -408,9 +495,56 @@ class AnnotationSettingTab extends PluginSettingTab {
       .setDesc('変更後は「再起動」を押してください。')
       .addText(t =>
         t.setValue(p.settings.folder).onChange(async v => {
-          p.settings.folder = v.trim() || 'annotations';
+          p.settings.folder = v.trim() || DEFAULTS.folder;
           await p.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName('引用の前後の文脈を表示')
+      .setDesc('註カードで、引用の前後の文字列を薄く表示します。')
+      .addToggle(t =>
+        t.setValue(p.settings.showContext).onChange(async v => {
+          p.settings.showContext = v;
+          await p.saveSettings();
+          p.refreshViews(false);
+        }),
+      );
+
+    new Setting(containerEl).setName('ハイライトのスタイル').setHeading();
+    const desc = containerEl.createDiv({ cls: 'setting-item-description' });
+    desc.setText(
+      'コメントに書いた #タグ ごとに、ブラウザでのハイライトの見た目を YAML で指定します。上にあるタグほど優先されます。入力をやめると、開いているページにすぐ反映されます。',
+    );
+    const editor = containerEl.createDiv({ cls: 'obsidiannot-styles-editor' });
+    const ta = editor.createEl('textarea', { attr: { spellcheck: 'false' } });
+    ta.value = p.settings.stylesYaml;
+    const preview = containerEl.createDiv();
+    const drawPreview = () => {
+      preview.empty();
+      renderStylesPreview(p.styles, preview, document.body.classList.contains('theme-dark'), p.stylesError);
+    };
+    drawPreview();
+    let timer: number | undefined;
+    ta.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        p.settings.stylesYaml = ta.value;
+        p.applyStylesYaml();
+        await p.saveSettings();
+        drawPreview();
+        p.refreshViews(true);
+      }, 600);
+    });
+    new Setting(containerEl).addButton(b =>
+      b.setButtonText('既定に戻す').onClick(async () => {
+        p.settings.stylesYaml = DEFAULT_STYLES_YAML;
+        ta.value = DEFAULT_STYLES_YAML;
+        p.applyStylesYaml();
+        await p.saveSettings();
+        drawPreview();
+        p.refreshViews(true);
+      }),
+    );
   }
 }

@@ -1,7 +1,7 @@
 /**
  * タグごとのハイライトの見た目。
  *
- * vault の `annotations/_styles.md` 内の ```annotation-styles ブロック（YAML）で設定する:
+ * Obsidian プラグインの設定画面（YAML）で設定する:
  *
  *   default:
  *     light: { background-color: "rgba(255, 226, 0, 0.28)" }
@@ -20,8 +20,6 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { tagAncestors } from './tags.ts';
-
-export const STYLES_LANG = 'annotation-styles';
 
 export const ALLOWED_PROPERTIES = [
   'color',
@@ -166,16 +164,11 @@ export function parseStyleConfig(yamlText: string): { config: StyleConfig; error
   return { config: { default: def, tags } };
 }
 
-/** markdown 中の ```annotation-styles ブロックを探して読む */
-export function styleConfigFromMarkdown(md: string): { config: StyleConfig; error?: string } {
-  const m = md.match(/^ {0,3}(`{3,}|~{3,})\s*annotation-styles\s*\n([\s\S]*?)\n {0,3}\1\s*$/m);
-  if (!m) return { config: DEFAULT_STYLES, error: 'no annotation-styles block' };
-  return parseStyleConfig(m[2]);
-}
+export const HIGHLIGHT_PREFIX = 'obsidiannot-';
 
 /** ハイライト名。CSS 識別子として安全なもの */
 export function highlightName(index: number | 'default' | 'focus' | 'hover'): string {
-  return typeof index === 'number' ? `a08-t${index}` : `a08-${index}`;
+  return typeof index === 'number' ? `${HIGHLIGHT_PREFIX}t${index}` : `${HIGHLIGHT_PREFIX}${index}`;
 }
 
 /**

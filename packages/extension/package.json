@@ -13,8 +13,9 @@
     "@codemirror/language": "*",
     "@codemirror/state": "*",
     "@codemirror/view": "*",
+    "@lezer/highlight": "*",
     "dompurify": "*",
-    "@lezer/highlight": "*"
+    "lucide": "^0.468.0"
   },
   "devDependencies": {
     "@types/chrome": "*"

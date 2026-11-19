@@ -3,7 +3,9 @@
  * content script とサイドパネルからの要求を中継する。
  */
 import { PROTOCOL_VERSION, normalizeUri, type EventMap, type Request, type RequestMap, type RequestType, type Response, type ServerEvent } from '@a08/core';
-import { loadSettings, type BgMessage, type Broadcast, type ConnectionStatus, type ContentMessage, type RpcReply } from './messages.ts';
+import { isScriptableUrl, loadSettings, type BgMessage, type Broadcast, type ConnectionStatus, type ContentMessage, type RpcReply } from './messages.ts';
+
+const NAME = chrome.i18n.getMessage('extName') || 'Obsidiannot';
 
 let ws: WebSocket | null = null;
 let status: ConnectionStatus = { state: 'disconnected' };
@@ -19,11 +21,11 @@ const pendingReveal = new Map<number, string>();
 
 function setStatus(s: ConnectionStatus) {
   status = s;
-  void broadcast({ kind: 'status', status });
+  void broadcast({ kind: 'statusChanged', status });
   void chrome.action.setBadgeText({ text: s.state === 'connected' ? '' : '!' });
   void chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
   void chrome.action.setTitle({
-    title: s.state === 'connected' ? `a08 註（${s.vault} に接続中）` : `a08 註（未接続: ${s.error ?? s.state}）`,
+    title: s.state === 'connected' ? `${NAME}（${s.vault}）` : `${NAME}（未接続: ${s.error ?? s.state}）`,
   });
 }
 
@@ -33,7 +35,7 @@ async function broadcast(msg: Broadcast) {
   // 各タブの content script
   const tabs = await chrome.tabs.query({});
   for (const t of tabs) {
-    if (t.id != null && t.url && /^(https?|file):/.test(t.url)) {
+    if (t.id != null && isScriptableUrl(t.url)) {
       chrome.tabs.sendMessage(t.id, msg).catch(() => undefined);
     }
   }
@@ -193,8 +195,63 @@ async function reveal(data: EventMap['reveal']) {
   if (created.windowId != null) await chrome.windows.update(created.windowId, { focused: true });
 }
 
+// ---------------------------------------------------------------- サイドパネル
+//
+// サイドパネルはウィンドウに 1 つだけ（タブ別の設定は使わない）。
+// タブ別に setOptions すると Chrome がタブごとに別のパネルを作り、裏に回ったパネルが止まって
+// 表示が古いまま・「接続できません」のまま、切り替え時に白く光る、といった不具合になった。
+// 拡張が入れないページでは、パネル内に控えめな表示を出すだけにする。
+
+// ---------------------------------------------------------------- content script の注入
+
+/** 拡張の読み込み前から開いていたタブなどに content script を入れる */
+async function injectContent(tabId: number): Promise<boolean> {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function injectAll() {
+  for (const t of await chrome.tabs.query({})) {
+    if (t.id != null && isScriptableUrl(t.url) && t.status === 'complete') {
+      const alive = await chrome.tabs.sendMessage(t.id, { kind: 'pageInfo' } satisfies ContentMessage).catch(() => null);
+      if (!alive) await injectContent(t.id);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- クリップボード
+
+let offscreenReady: Promise<void> | null = null;
+async function copyText(text: string): Promise<boolean> {
+  offscreenReady ??= (async () => {
+    const has = await chrome.offscreen.hasDocument?.().catch(() => false);
+    if (!has) {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: [chrome.offscreen.Reason.CLIPBOARD],
+        justification: 'Copy a link to the annotation',
+      });
+    }
+  })().catch(e => {
+    offscreenReady = null;
+    throw e;
+  });
+  await offscreenReady;
+  return Boolean(await chrome.runtime.sendMessage({ kind: 'offscreenCopy', text }));
+}
+
 chrome.runtime.onMessage.addListener((msg: BgMessage, sender, sendResponse) => {
   switch (msg?.kind) {
+    case 'ensureContent':
+      injectContent(msg.tabId).then(sendResponse);
+      return true;
+    case 'copyText':
+      copyText(msg.text).then(sendResponse, () => sendResponse(false));
+      return true;
     case 'rpc':
       requestRaw(msg.type, msg.params).then(res => {
         const reply: RpcReply = res.ok ? { ok: true, result: res.result as never } : { ok: false, error: res.error };
@@ -248,14 +305,19 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 });
 
 chrome.contextMenus?.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== 'a08-annotate' || tab?.id == null) return;
+  if (info.menuItemId !== 'obsidiannot-annotate' || tab?.id == null) return;
   if (tab.windowId != null) chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
   chrome.tabs.sendMessage(tab.id, { kind: 'annotateSelection' } satisfies ContentMessage).catch(() => undefined);
 });
 
 chrome.runtime.onInstalled.addListener(async details => {
-  chrome.contextMenus.create({ id: 'a08-annotate', title: '選択範囲に註をつける', contexts: ['selection'] });
+  chrome.contextMenus.create({
+    id: 'obsidiannot-annotate',
+    title: chrome.i18n.getMessage('annotateSelection') || 'Annotate selection',
+    contexts: ['selection'],
+  });
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+  await injectAll();
   const s = await loadSettings();
   if (details.reason === 'install' && !s.token) await chrome.runtime.openOptionsPage();
 });
@@ -269,9 +331,9 @@ chrome.storage.onChanged.addListener(changes => {
   }
 });
 
-chrome.alarms.create('a08-keepalive', { periodInMinutes: 0.5 });
+chrome.alarms.create('obsidiannot-keepalive', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(a => {
-  if (a.name === 'a08-keepalive' && (!ws || ws.readyState === WebSocket.CLOSED)) void connect();
+  if (a.name === 'obsidiannot-keepalive' && (!ws || ws.readyState === WebSocket.CLOSED)) void connect();
 });
 
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);

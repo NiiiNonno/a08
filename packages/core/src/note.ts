@@ -10,9 +10,7 @@
  *     - https://example.com/page
  *   ---
  *
- *   # ページのタイトル
- *
- *   ```annotation
+ *   ```obsidiannot
  *   id: ...
  *   created: ...
  *   source: https://example.com/page
@@ -20,10 +18,13 @@
  *     - type: TextQuoteSelector
  *       exact: ...
  *   ```
+ *   ^k3x9qa
+ *
  *   ここがコメント。#重要 のようなタグも書ける。
  *
- * コメントは、ブロックの直後から「次の annotation ブロック」または
- * 「見出し行（# + 空白）」の直前まで。
+ * - ブロック直後の `^xxxx` 行は Obsidian のブロック ID（照＝リンクで参照するため。任意）
+ * - コメントは、ブロック（と ID 行）の直後から「次の obsidiannot ブロック」または
+ *   「見出し行（# + 空白）」の直前まで。
  */
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml, isSeq, YAMLSeq } from 'yaml';
 import { extractTags } from './tags.ts';
@@ -36,7 +37,9 @@ import type {
   Selector,
 } from './types.ts';
 
-export const ANNOTATION_LANG = 'annotation';
+export const ANNOTATION_LANG = 'obsidiannot';
+
+const BLOCK_ID_RE = /^\^([A-Za-z0-9-]+)\s*$/;
 
 type Fence = { char: string; len: number; info: string; line: number };
 
@@ -151,12 +154,15 @@ export function parseNote(text: string): ParsedNote {
 
   blocks.forEach((b, idx) => {
     const limit = idx + 1 < blocks.length ? blocks[idx + 1].start : lines.length;
-    let end = b.end + 1;
+    // 直後の ^id 行（ブロック ID）
+    const idMatch = b.end + 1 < limit ? lines[b.end + 1].replace(/\r$/, '').match(BLOCK_ID_RE) : null;
+    const head = idMatch ? b.end + 1 : b.end;
+    let end = head + 1;
     while (end < limit && !headings.has(end)) end++;
     // end は排他的。末尾の空行を除く
     let last = end - 1;
-    while (last > b.end && lines[last].trim() === '') last--;
-    let first = b.end + 1;
+    while (last > head && lines[last].trim() === '') last--;
+    let first = head + 1;
     while (first <= last && lines[first].trim() === '') first++;
     const comment = first <= last ? lines.slice(first, last + 1).join('\n') : '';
 
@@ -190,6 +196,8 @@ export function parseNote(text: string): ParsedNote {
       tags: extractTags(comment),
       startLine: b.start,
       blockEndLine: b.end,
+      ...(idMatch ? { blockId: idMatch[1] } : {}),
+      headEndLine: head,
       endLine,
       startOffset: lineStart[b.start],
       endOffset: lineStart[endLine] + lines[endLine].length,
@@ -206,7 +214,10 @@ function fenceFor(body: string): string {
   return '`'.repeat(max + 1);
 }
 
-/** 註データを ```annotation ブロックにする */
+/** ノートから読み取った値（ブロックの YAML には書かない） */
+const DERIVED_KEYS = ['comment', 'tags', 'startLine', 'blockEndLine', 'headEndLine', 'endLine', 'startOffset', 'endOffset', 'blockId'];
+
+/** 註データを ```obsidiannot ブロックにする */
 export function serializeAnnotation(a: AnnotationData): string {
   const { id, created, source, selector, ...extra } = a;
   // 読みやすさのため TextQuoteSelector を先頭に
@@ -216,7 +227,7 @@ export function serializeAnnotation(a: AnnotationData): string {
   );
   const obj: Record<string, unknown> = { id, created, source };
   for (const [k, v] of Object.entries(extra)) {
-    if (v !== undefined && !['comment', 'tags', 'startLine', 'blockEndLine', 'endLine', 'startOffset', 'endOffset'].includes(k)) obj[k] = v;
+    if (v !== undefined && !DERIVED_KEYS.includes(k)) obj[k] = v;
   }
   obj.selector = sel.map(s => {
     // undefined のキーを落とす
@@ -233,23 +244,57 @@ export function createNoteContent(meta: NoteMeta, now = new Date()): string {
     { titles: meta.titles, uris: meta.uris, created: localIsoString(now) },
     { lineWidth: 0 },
   );
-  const heading = meta.titles[0] ? `\n# ${meta.titles[0]}\n` : '';
-  return `---\n${fm}---\n${heading}`;
+  return `---\n${fm}---\n`;
 }
 
-/** 註ブロック＋コメントをノート末尾に追加した本文を返す */
+/** 註ブロック＋（ブロック ID）＋コメントをノート末尾に追加した本文を返す */
 export function appendAnnotation(
   text: string,
   a: AnnotationData,
   comment = '',
+  blockId?: string,
 ): { text: string; offset: number } {
   let base = text.replace(/\s*$/, '');
-  const block = serializeAnnotation(a);
+  const block = serializeAnnotation(a) + (blockId ? `\n^${blockId}` : '');
   const sep = base ? '\n\n' : '';
   const offset = base.length + sep.length;
-  const tail = comment.trim() ? `\n${comment.trim()}\n` : '\n';
+  // ID 行の直後に本文が続くと Obsidian が ID と認めないので空行を挟む
+  const tail = comment.trim() ? `\n${blockId ? '\n' : ''}${comment.trim()}\n` : '\n';
   base = `${base}${sep}${block}${tail}`;
   return { text: base, offset };
+}
+
+/**
+ * 註にブロック ID を付ける（既にあればそのまま）。
+ * 返す text は変更後の全文、changed は書き換えたかどうか。
+ */
+export function ensureBlockId(
+  text: string,
+  annotationId: string,
+  newId: () => string = newBlockId,
+): { text: string; blockId: string; changed: boolean } | null {
+  const parsed = parseNote(text);
+  const a = parsed.annotations.find(x => x.id === annotationId);
+  if (!a) return null;
+  if (a.blockId) return { text, blockId: a.blockId, changed: false };
+  const used = new Set(parsed.annotations.map(x => x.blockId).filter(Boolean));
+  for (const m of text.matchAll(/(?:^|\s)\^([A-Za-z0-9-]+)\s*$/gm)) used.add(m[1]);
+  let blockId = newId();
+  while (used.has(blockId)) blockId = newId();
+  const lines = text.split('\n');
+  const insert = [`^${blockId}`];
+  const next = lines[a.blockEndLine + 1];
+  if (next !== undefined && next.trim() !== '') insert.push('');
+  lines.splice(a.blockEndLine + 1, 0, ...insert);
+  return { text: lines.join('\n'), blockId, changed: true };
+}
+
+/** Obsidian のブロック ID 風（英小文字と数字 6 文字） */
+export function newBlockId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
 }
 
 /**

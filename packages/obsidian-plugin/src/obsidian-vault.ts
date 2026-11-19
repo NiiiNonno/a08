@@ -37,4 +37,16 @@ export class ObsidianVault implements VaultAdapter {
   async exists(path: string): Promise<boolean> {
     return this.app.vault.getAbstractFileByPath(normalizePath(path)) != null;
   }
+
+  async rename(from: string, to: string): Promise<void> {
+    const f = this.app.vault.getAbstractFileByPath(normalizePath(from));
+    if (!(f instanceof TFile)) throw new Error(`ファイルがありません: ${from}`);
+    // fileManager 経由だと、このノートへのリンクも設定どおり更新される
+    await this.app.fileManager.renameFile(f, normalizePath(to));
+  }
+
+  async readBinary(path: string): Promise<Uint8Array | null> {
+    const f = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    return f instanceof TFile ? new Uint8Array(await this.app.vault.readBinary(f)) : null;
+  }
 }

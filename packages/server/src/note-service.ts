@@ -3,23 +3,20 @@
  * ファイル操作は VaultAdapter に任せる。
  */
 import {
-  DEFAULT_STYLES,
-  DEFAULT_STYLES_YAML,
   ProtocolError,
-  STYLES_LANG,
   addToFrontmatter,
   appendAnnotation,
   createNoteContent,
+  ensureBlockId,
   fileNameFromTitle,
   localIsoString,
   newAnnotationId,
+  newBlockId,
   normalizeUri,
   parseNote,
-  styleConfigFromMarkdown,
   type AnnotationData,
   type NoteView,
   type RequestMap,
-  type StyleConfig,
 } from '@a08/core';
 
 export interface VaultAdapter {
@@ -29,6 +26,10 @@ export interface VaultAdapter {
   /** 新規作成または上書き */
   write(path: string, content: string): Promise<void>;
   exists(path: string): Promise<boolean>;
+  /** 移動・改名（Obsidian ではリンクも更新する） */
+  rename(from: string, to: string): Promise<void>;
+  /** バイナリ（画像など）。なければ null */
+  readBinary(path: string): Promise<Uint8Array | null>;
 }
 
 export function contentVersion(content: string): string {
@@ -52,7 +53,7 @@ export function toNoteView(path: string, content: string): NoteView {
     titles: parsed.titles,
     uris: parsed.uris,
     annotations: parsed.annotations.map(a => {
-      const { startOffset: _s, endOffset: _e, blockEndLine: _b, ...rest } = a;
+      const { startOffset: _s, endOffset: _e, blockEndLine: _b, headEndLine: _h, ...rest } = a;
       return rest;
     }),
   };
@@ -72,16 +73,11 @@ export class NoteService {
   private index = new Map<string, IndexEntry>();
   private locks = new Map<string, Promise<unknown>>();
   private now: () => Date;
-  private stylesCache: StyleConfig | null = null;
 
   constructor(vault: VaultAdapter, options: NoteServiceOptions) {
     this.vault = vault;
     this.folder = options.folder.replace(/^\/+|\/+$/g, '');
     this.now = options.now ?? (() => new Date());
-  }
-
-  get stylesPath(): string {
-    return `${this.folder}/_styles.md`;
   }
 
   /** 註ノートとして扱うパスか（_ で始まるファイルは除く） */
@@ -108,15 +104,8 @@ export class NoteService {
     this.index.set(path, { uris: new Set(n.uris.map(normalizeUri)), titles: n.titles });
   }
 
-  /**
-   * ファイルの変更を通知する。註ノートなら索引を更新して NoteView を返す。
-   * スタイル設定ファイルなら 'styles' を返す。
-   */
-  async fileChanged(path: string): Promise<NoteView | null | 'styles' | undefined> {
-    if (path === this.stylesPath) {
-      this.stylesCache = null;
-      return 'styles';
-    }
+  /** ファイルの変更を通知する。註ノートなら索引を更新して NoteView を返す */
+  async fileChanged(path: string): Promise<NoteView | null | undefined> {
     if (!this.isNotePath(path)) return undefined;
     const c = await this.vault.read(path);
     if (c == null) {
@@ -129,7 +118,6 @@ export class NoteService {
 
   fileDeleted(path: string) {
     this.index.delete(path);
-    if (path === this.stylesPath) this.stylesCache = null;
   }
 
   fileRenamed(oldPath: string, newPath: string) {
@@ -147,24 +135,6 @@ export class NoteService {
       }
     }
     return null;
-  }
-
-  async getStyles(): Promise<StyleConfig> {
-    if (this.stylesCache) return this.stylesCache;
-    const md = await this.vault.read(this.stylesPath);
-    this.stylesCache = md ? styleConfigFromMarkdown(md).config : DEFAULT_STYLES;
-    return this.stylesCache;
-  }
-
-  /** スタイル設定ファイルがなければ作る */
-  async ensureStylesFile(): Promise<void> {
-    if (await this.vault.exists(this.stylesPath)) return;
-    const md =
-      '# 註のハイライト設定\n\n' +
-      'コメントに書いた `#タグ` ごとに、ブラウザでのハイライトの見た目を変えられます。\n' +
-      '下のブロックを編集すると、開いているページにすぐ反映されます。\n\n' +
-      '```' + STYLES_LANG + '\n' + DEFAULT_STYLES_YAML + '```\n';
-    await this.vault.write(this.stylesPath, md);
   }
 
   private async withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
@@ -214,7 +184,7 @@ export class NoteService {
 
   async createAnnotation(
     params: RequestMap['createAnnotation']['params'],
-  ): Promise<{ note: NoteView; id: string }> {
+  ): Promise<{ note: NoteView; id: string; blockId?: string }> {
     const uris = dedupeUris(params.uris.filter(Boolean));
     const title = params.title.trim() || uris[0] || 'untitled';
     let path = params.path && (await this.vault.exists(params.path)) ? params.path : this.findPath(uris);
@@ -254,10 +224,60 @@ export class NoteService {
         source: params.source || uris[0] || '',
         selector: params.selector,
       };
-      content = appendAnnotation(content, data, params.comment ?? '').text;
+      let blockId: string | undefined;
+      if (params.blockId) {
+        const used = new Set(parseNote(content).annotations.map(x => x.blockId));
+        do blockId = newBlockId();
+        while (used.has(blockId) || content.includes(`^${blockId}`));
+      }
+      content = appendAnnotation(content, data, params.comment ?? '', blockId).text;
       const note = await this.writeNote(target, content);
-      return { note, id };
+      return { note, id, blockId };
     });
+  }
+
+  /** 照: 註にブロック ID を付ける（既にあればそのまま） */
+  async ensureBlockId(path: string, id: string): Promise<{ note: NoteView; blockId: string; changed: boolean }> {
+    return this.withLock(path, async () => {
+      const content = await this.readNote(path);
+      const r = ensureBlockId(content, id);
+      if (!r) throw new ProtocolError('not_found', `註がありません: ${id}`);
+      const note = r.changed ? await this.writeNote(path, r.text) : toNoteView(path, content);
+      return { note, blockId: r.blockId, changed: r.changed };
+    });
+  }
+
+  /** ノートの改名。name は拡張子なしのファイル名（同じフォルダ内） */
+  async renameNote(path: string, name: string): Promise<{ note: NoteView; changed: boolean }> {
+    const clean = fileNameFromTitle(name);
+    if (!name.trim() || clean !== name.trim()) {
+      throw new ProtocolError('bad_request', 'ファイル名に使えない文字が含まれています（\\ / : * ? " < > | # ^ [ ]）');
+    }
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+    const to = `${dir}${clean}.md`;
+    return this.withLock(path, async () => {
+      await this.readNote(path);
+      if (to === path) return { note: (await this.getNote(path))!, changed: false };
+      if (await this.vault.exists(to)) throw new ProtocolError('conflict', `同じ名前のファイルがあります: ${clean}`);
+      await this.vault.rename(path, to);
+      this.fileRenamed(path, to);
+      const c = await this.readNote(to);
+      this.indexContent(to, c);
+      return { note: toNoteView(to, c), changed: true };
+    });
+  }
+
+  /** vault 内の画像を読む */
+  async readResource(path: string): Promise<{ mime: string; base64: string }> {
+    const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    const mime = IMAGE_TYPES[ext];
+    if (!mime || path.split('/').some(seg => seg === '..' || seg === '')) {
+      throw new ProtocolError('bad_request', `扱えないファイルです: ${path}`);
+    }
+    const data = await this.vault.readBinary(path);
+    if (!data) throw new ProtocolError('not_found', path);
+    if (data.byteLength > 24 * 1024 * 1024) throw new ProtocolError('too_large', `大きすぎます: ${path}`);
+    return { mime, base64: toBase64(data) };
   }
 
   async updateComment(path: string, id: string, comment: string): Promise<{ note: NoteView }> {
@@ -267,10 +287,11 @@ export class NoteService {
       const a = parsed.annotations.find(x => x.id === id);
       if (!a) throw new ProtocolError('not_found', `註がありません: ${id}`);
       const lines = content.split('\n');
-      const before = lines.slice(0, a.blockEndLine + 1);
+      const before = lines.slice(0, a.headEndLine + 1);
       const after = lines.slice(a.endLine + 1);
       const body = comment.replace(/\s+$/, '');
-      const mid = body ? [body] : [];
+      // ブロック ID 行の直後は空行を挟む（でないと ID として認識されない）
+      const mid = body ? (a.blockId ? ['', body.replace(/^\s*\n/, '')] : [body]) : [];
       // 後続と詰まらないよう空行を1つ入れる
       if (after.length && after[0].trim() !== '') mid.push('');
       const out = [...before, ...mid, ...after].join('\n');
@@ -306,6 +327,23 @@ export class NoteService {
       return { note: await this.writeNote(path, content) };
     });
   }
+}
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+};
+
+function toBase64(data: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < data.length; i += 0x8000) s += String.fromCharCode(...data.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 export function dedupeUris(uris: string[]): string[] {

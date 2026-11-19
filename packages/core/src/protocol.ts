@@ -8,12 +8,14 @@
 import type { AnnotationData, Selector } from './types.ts';
 import type { StyleConfig } from './styles.ts';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const DEFAULT_PORT = 27183;
 
 export type AnnotationView = AnnotationData & {
   comment: string;
   tags: string[];
+  /** Obsidian のブロック ID（`^` なし）。照で付く */
+  blockId?: string;
   startLine: number;
   endLine: number;
 };
@@ -32,6 +34,20 @@ export type ThemeInfo = {
   dark: boolean;
   /** Obsidian の CSS 変数（--background-primary など） */
   vars: Record<string, string>;
+  /** appearance の版。変わったらサイドパネルが取り直す */
+  cssVersion?: string;
+};
+
+/** サイドパネルで Obsidian と同じ見た目にするための CSS */
+export type Appearance = {
+  version: string;
+  /** Obsidian の全スタイルシート（テーマ・スニペット・プラグインを含む）。body/html は書き換え済み */
+  css: string;
+  /** Obsidian の body の class（theme-dark など） */
+  bodyClass: string;
+  /** body / html のインライン style（アクセントカラー --accent-h などはここに入る） */
+  bodyStyle?: string;
+  rootStyle?: string;
 };
 
 export type RequestMap = {
@@ -55,8 +71,20 @@ export type RequestMap = {
       comment?: string;
       /** 既にノートがあるときに使う（なければ uris から探す/作る） */
       path?: string;
+      /** 照: ブロック ID を付けてリンクを返す */
+      blockId?: boolean;
     };
-    result: { note: NoteView; id: string };
+    result: { note: NoteView; id: string; link?: string };
+  };
+  /** 照: 註にブロック ID を付け（なければ）、ブロックへの内部リンクを返す */
+  linkToAnnotation: {
+    params: { path: string; id: string };
+    result: { note: NoteView; link: string };
+  };
+  /** ノートのファイル名を変える（name は拡張子なし）。Obsidian ではリンクも更新される */
+  renameNote: {
+    params: { path: string; name: string };
+    result: { note: NoteView };
   };
   /** コメントだけを書き換える */
   updateComment: {
@@ -74,6 +102,10 @@ export type RequestMap = {
   };
   /** Obsidian のレンダラーで HTML にする */
   render: { params: { path: string }; result: { html: string } };
+  /** Obsidian の CSS 一式 */
+  appearance: { params: Record<string, never>; result: Appearance | null };
+  /** vault 内の画像（描画結果の data-obsidiannot-resource） */
+  getResource: { params: { path: string }; result: { mime: string; base64: string } };
   openInObsidian: { params: { path: string; id?: string }; result: null };
   /** markdown 中の内部リンクを Obsidian で開く */
   openLink: { params: { link: string; sourcePath: string }; result: null };

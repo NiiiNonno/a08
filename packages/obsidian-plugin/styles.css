@@ -1,27 +1,31 @@
-.a08-card {
-  --a08-accent: rgba(255, 200, 0, 0.8);
-  border-left: 4px solid var(--a08-accent);
+.obsidiannot-card {
+  --obsidiannot-accent: rgba(255, 200, 0, 0.8);
+  border-left: 4px solid var(--obsidiannot-accent);
   background: var(--background-secondary);
   border-radius: var(--radius-s, 4px);
   padding: 0.4em 0.75em;
-  margin: 0.25em 0;
+  /* 上の註のコメントより、下に続く自分のコメントに近く見えるよう、上を広く空ける */
+  margin: 1.4em 0 0.35em;
+  cursor: pointer;
 }
-.a08-card .a08-quote {
+.obsidiannot-card:hover {
+  background: var(--background-modifier-hover);
+}
+.obsidiannot-card .obsidiannot-quote {
   margin: 0;
   padding: 0;
   border: none;
   font-style: normal;
-  cursor: pointer;
   white-space: pre-wrap;
 }
-.a08-card .a08-exact {
+.obsidiannot-card .obsidiannot-exact {
   color: var(--text-normal);
 }
-.a08-card .a08-context {
+.obsidiannot-card .obsidiannot-context {
   color: var(--text-faint);
   font-size: 0.9em;
 }
-.a08-card .a08-meta {
+.obsidiannot-card .obsidiannot-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6em;
@@ -30,28 +34,33 @@
   font-size: var(--font-ui-smaller, 0.8em);
   color: var(--text-muted);
 }
-.a08-card .a08-tag {
+.obsidiannot-card .obsidiannot-tag {
   color: var(--tag-color);
 }
-.a08-card .a08-reveal {
+.obsidiannot-card .obsidiannot-open-hint {
   margin-left: auto;
-  font-size: inherit;
-  padding: 0 0.6em;
-  height: auto;
+  color: var(--text-faint);
+  opacity: 0.7;
 }
-.a08-card-error {
+.obsidiannot-card-error {
   color: var(--text-error);
 }
-.a08-styles .a08-style-row {
+.obsidiannot-styles .obsidiannot-style-row {
   display: flex;
   gap: 1em;
   align-items: baseline;
   padding: 0.15em 0;
 }
-.a08-styles .a08-style-label {
+.obsidiannot-styles .obsidiannot-style-label {
   min-width: 8em;
   color: var(--text-muted);
 }
-.a08-status {
+.obsidiannot-styles-editor textarea {
+  width: 100%;
+  min-height: 18em;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+}
+.obsidiannot-status {
   cursor: pointer;
 }

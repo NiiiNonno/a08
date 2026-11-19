@@ -1,7 +1,7 @@
 /**
  * Obsidian なしで拡張を試すための開発用サーバー。
  *
- *   npm run dev-server -- --vault test-vault --port 27183 --token devtoken
+ *   npm run dev-server -- --vault test-vault --port 27183 --token devtoken [--styles styles.yaml]
  *
  * Obsidian プラグインと同じプロトコルを話す。HTML 化は marked による簡易版。
  */
@@ -9,7 +9,8 @@ import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import { Marked } from 'marked';
 import { parse as parseYaml } from 'yaml';
-import { DEFAULT_PORT, displayQuote, quoteOf, type AnnotationData, type ThemeInfo } from '@a08/core';
+import { readFile } from 'node:fs/promises';
+import { ANNOTATION_LANG, DEFAULT_PORT, DEFAULT_STYLES, displayQuote, parseStyleConfig, quoteOf, type AnnotationData, type Appearance, type StyleConfig, type ThemeInfo } from '@a08/core';
 import { NoteService } from './note-service.ts';
 import { AnnotationServer } from './ws-server.ts';
 import { FsVault } from './fs-vault.ts';
@@ -21,8 +22,13 @@ export function createDevRenderer() {
   const marked = new Marked();
   marked.use({
     renderer: {
+      // vault 内の画像は Obsidian プラグインと同じく data-obsidiannot-resource にする
+      image({ href, text }) {
+        if (/^(https?:|data:)/i.test(href)) return false;
+        return `<img data-obsidiannot-resource="${escapeHtml(decodeURI(href))}" alt="${escapeHtml(text)}">`;
+      },
       code({ text, lang }) {
-        if (lang !== 'annotation') return false;
+        if (lang !== ANNOTATION_LANG) return false;
         let a: AnnotationData;
         try {
           a = parseYaml(text);
@@ -30,33 +36,56 @@ export function createDevRenderer() {
           return `<pre>${escapeHtml(text)}</pre>`;
         }
         return (
-          `<div class="a08-card" data-annotation-id="${escapeHtml(String(a.id))}">` +
-          `<blockquote class="a08-quote">${escapeHtml(displayQuote(quoteOf(a)))}</blockquote>` +
-          `<div class="a08-meta">${escapeHtml(String(a.created ?? ''))}</div></div>`
+          `<div class="obsidiannot-card" data-annotation-id="${escapeHtml(String(a.id))}">` +
+          `<blockquote class="obsidiannot-quote">${escapeHtml(displayQuote(quoteOf(a)))}</blockquote>` +
+          `<div class="obsidiannot-meta">${escapeHtml(String(a.created ?? ''))}</div></div>`
         );
       },
     },
   });
-  return (md: string) => marked.parse(md.replace(/^---\n[\s\S]*?\n---\n/, '')) as string;
+  // ブロック ID 行（^xxxx）は Obsidian と同じく表示しない
+  return (md: string) =>
+    marked.parse(md.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^\^[A-Za-z0-9-]+[ \t]*$/gm, '')) as string;
 }
 
 export const DEV_THEME: ThemeInfo = { dark: false, vars: {} };
 
-export async function startDevServer(opts: { vault: string; port: number; token: string; folder?: string; quiet?: boolean }) {
+export async function startDevServer(opts: {
+  vault: string;
+  port: number;
+  token: string;
+  folder?: string;
+  /** スタイル設定（YAML）のファイル */
+  styles?: string;
+  /** サイドパネルに渡す CSS（テスト用。Obsidian では画面の CSS 一式） */
+  appearance?: Appearance;
+  /** テーマ（テスト用。Obsidian では画面の CSS 変数） */
+  theme?: ThemeInfo;
+  /** markdown → HTML を差し替える（テスト用。Obsidian の描画結果をまねる） */
+  render?: (path: string, content: string) => Promise<string>;
+  quiet?: boolean;
+}) {
   const vault = new FsVault(resolve(opts.vault));
-  const service = new NoteService(vault, { folder: opts.folder ?? 'annotations' });
-  await service.ensureStylesFile();
+  const service = new NoteService(vault, { folder: opts.folder ?? 'obsidiannot' });
   await service.rebuildIndex();
+  let styles: StyleConfig = DEFAULT_STYLES;
+  const loadStyles = async () => {
+    if (opts.styles) styles = parseStyleConfig(await readFile(resolve(opts.styles), 'utf8')).config;
+  };
+  await loadStyles();
   const render = createDevRenderer();
-  const log = opts.quiet ? undefined : (m: string, ...a: unknown[]) => console.log(`[a08] ${m}`, ...a);
+  const log = opts.quiet ? undefined : (m: string, ...a: unknown[]) => console.log(`[obsidiannot] ${m}`, ...a);
   const server = new AnnotationServer({
     port: opts.port,
     token: opts.token,
     service,
     hooks: {
       vaultName: () => 'dev-vault',
-      theme: () => DEV_THEME,
-      render: async (_p, content) => render(content),
+      theme: () => ({ ...(opts.theme ?? DEV_THEME), ...(opts.appearance ? { cssVersion: opts.appearance.version } : {}) }),
+      appearance: () => opts.appearance ?? null,
+      styles: () => styles,
+      linkTo: (p, blockId) => `[[${p.split('/').pop()!.replace(/\.md$/, '')}#^${blockId}]]`,
+      render: opts.render ?? (async (_p, content) => render(content)),
       openInObsidian: async (p, id) => log?.('openInObsidian', p, id),
       openLink: async (l, s) => log?.('openLink', l, s),
       log,
@@ -65,12 +94,16 @@ export async function startDevServer(opts: { vault: string; port: number; token:
   await server.start();
   const watcher = vault.watch(async p => {
     const r = await service.fileChanged(p);
-    if (r === 'styles') server.broadcast('stylesChanged', { styles: await service.getStyles() });
-    else if (r !== undefined) server.noteChanged(p, r);
+    if (r !== undefined) server.noteChanged(p, r);
   });
   return {
     server,
     service,
+    /** スタイル設定を差し替えて配信する（テスト用） */
+    setStyles(s: StyleConfig) {
+      styles = s;
+      server.broadcast('stylesChanged', { styles });
+    },
     async stop() {
       watcher.close();
       await server.stop();
@@ -84,7 +117,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       vault: { type: 'string', default: 'test-vault' },
       port: { type: 'string', default: String(DEFAULT_PORT) },
       token: { type: 'string', default: 'devtoken' },
-      folder: { type: 'string', default: 'annotations' },
+      folder: { type: 'string', default: 'obsidiannot' },
+      styles: { type: 'string' },
     },
   });
   const s = await startDevServer({
@@ -92,8 +126,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     port: Number(values.port),
     token: values.token!,
     folder: values.folder,
+    styles: values.styles,
   });
-  console.log(`a08 dev server: ws://127.0.0.1:${values.port}/?token=${values.token}  vault=${resolve(values.vault!)}`);
+  console.log(`Obsidiannot dev server: ws://127.0.0.1:${values.port}/?token=${values.token}  vault=${resolve(values.vault!)}`);
   process.on('SIGINT', async () => {
     await s.stop();
     process.exit(0);

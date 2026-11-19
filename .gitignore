@@ -4,6 +4,6 @@ dist/
 test-results/
 playwright-report/
 e2e/fixtures/tmp/
-test-vault/annotations/*.md
-!test-vault/annotations/.gitkeep
+test-vault/obsidiannot/*.md
+!test-vault/obsidiannot/.gitkeep
 test-vault/.obsidian/

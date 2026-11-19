@@ -36,7 +36,7 @@ export type Selector =
   | RangeSelector
   | PageSelector;
 
-/** ```annotation ブロックに保存される内容 */
+/** ```obsidiannot ブロックに保存される内容 */
 export type AnnotationData = {
   id: string;
   /** ISO 8601（ローカル時刻＋オフセット） */
@@ -58,7 +58,11 @@ export type ParsedAnnotation = AnnotationData & {
   startLine: number;
   /** ブロック終了フェンス行 */
   blockEndLine: number;
-  /** コメントの最終行（コメントが空なら blockEndLine） */
+  /** ブロック直後の `^xxxx`（Obsidian のブロック ID）。なければ undefined */
+  blockId?: string;
+  /** ブロック ID 行があればその行、なければ blockEndLine */
+  headEndLine: number;
+  /** コメントの最終行（コメントが空なら headEndLine） */
   endLine: number;
   /** ブロック開始の文字オフセット */
   startOffset: number;

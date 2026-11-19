@@ -8,6 +8,7 @@
 import { TextModel, anchor, describe, ignoreSelectors, type IgnoreFn } from '@a08/core/anchoring';
 import {
   DEFAULT_STYLES,
+  HIGHLIGHT_PREFIX,
   accentColor,
   buildHighlightCss,
   highlightName,
@@ -22,6 +23,44 @@ import {
 } from '@a08/core';
 import { loadSettings, rpc, type ConnectionStatus, type ContentMessage, type PageInfo, type PanelMessage } from './messages.ts';
 import { UI_CSS } from './content-ui.ts';
+import { iconHtml } from './icons.ts';
+
+/**
+ * 同じページに 2 回入った場合（拡張の再読み込み後に注入し直したときなど）は、
+ * 前のインスタンスを片付けてから動く。
+ */
+const g = globalThis as typeof globalThis & { __obsidiannotTeardown?: () => void };
+try {
+  g.__obsidiannotTeardown?.();
+} catch {
+  /* 前のインスタンスの文脈が無効 */
+}
+const lifetime = new AbortController();
+const on = { signal: lifetime.signal };
+const timers: ReturnType<typeof setInterval>[] = [];
+let observer: MutationObserver | null = null;
+g.__obsidiannotTeardown = () => {
+  lifetime.abort();
+  for (const t of timers) clearInterval(t);
+  observer?.disconnect();
+  host.remove();
+  // 自分が登録したハイライトだけを消す（入れ直した新しいインスタンスも同じ名前を使うため）
+  for (const n of [...mine.keys()]) deleteHighlight(n);
+  try {
+    chrome.runtime.onMessage.removeListener(onMessage);
+    chrome.storage.onChanged.removeListener(onStorage);
+  } catch {
+    /* ignore */
+  }
+};
+/** 拡張が再読み込みされると、古い content script からは chrome.runtime が使えなくなる */
+function contextAlive(): boolean {
+  try {
+    return Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
 
 type Anchored = { a: AnnotationView; ranges: Range[] };
 
@@ -38,6 +77,7 @@ const state = {
   focusId: null as string | null,
   pendingScroll: null as string | null,
   connected: false,
+  copyLink: true,
 };
 
 // ---------------------------------------------------------------- ページ情報
@@ -114,6 +154,19 @@ function applyStyles(cfg: StyleConfig) {
 
 const highlightsSupported = typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
 const usedNames = new Set<string>();
+/** このインスタンスが登録した Highlight */
+const mine = new Map<string, Highlight>();
+
+function setHighlight(name: string, h: Highlight) {
+  CSS.highlights.set(name, h);
+  mine.set(name, h);
+}
+
+function deleteHighlight(name: string) {
+  const h = mine.get(name);
+  mine.delete(name);
+  if (h && CSS.highlights?.get(name) === h) CSS.highlights.delete(name);
+}
 
 function namesFor(a: AnnotationView): string[] {
   const idx = styleIndicesForTags(state.styles, a.tags);
@@ -129,15 +182,15 @@ function paint() {
       groups.get(n)!.push(...ranges);
     }
   }
-  for (const n of usedNames) if (!groups.has(n)) CSS.highlights.delete(n);
+  for (const n of usedNames) if (!groups.has(n)) deleteHighlight(n);
   usedNames.clear();
   const nTags = state.styles.tags.length;
   for (const [n, ranges] of groups) {
     const h = new Highlight(...ranges);
     // 上にあるタグほど手前に描く
-    const m = n.match(/^a08-t(\d+)$/);
+    const m = n.startsWith(`${HIGHLIGHT_PREFIX}t`) ? n.slice(HIGHLIGHT_PREFIX.length).match(/^t(\d+)$/) : null;
     h.priority = m ? 10 + (nTags - Number(m[1])) : 1;
-    CSS.highlights.set(n, h);
+    setHighlight(n, h);
     usedNames.add(n);
   }
   paintTransient();
@@ -155,9 +208,9 @@ function paintTransient() {
     if (anc) {
       const h = new Highlight(...anc.ranges);
       h.priority = key === 'focus' ? 1000 : 900;
-      CSS.highlights.set(name, h);
+      setHighlight(name, h);
     } else {
-      CSS.highlights.delete(name);
+      deleteHighlight(name);
     }
   }
 }
@@ -176,7 +229,7 @@ function anchorAll() {
       try {
         res = anchor(model, a.selector, { usePosition });
       } catch (e) {
-        console.debug('[a08] anchor failed', a.id, e);
+        console.debug('[obsidiannot] anchor failed', a.id, e);
       }
       const ranges = res ? model.rangesFor(res.start, res.end) : [];
       if (ranges.length) state.anchors.set(a.id, { a, ranges });
@@ -207,7 +260,7 @@ async function refreshNote() {
     state.connected = true;
   } catch (e) {
     state.connected = false;
-    console.debug('[a08] lookup failed', e);
+    console.debug('[obsidiannot] lookup failed', e);
     setNote(state.note);
   }
 }
@@ -264,19 +317,19 @@ function hitTest(x: number, y: number): string | null {
 
 // ---------------------------------------------------------------- UI（Shadow DOM）
 
-const host = document.createElement('a08-annotator');
+const host = document.createElement('obsidiannot-ui');
 host.style.cssText = 'all: initial; position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483647;';
 // open にしておくと自動テストから操作できる（ページ側からも見えるが、秘密情報は置かない）
 const shadow = host.attachShadow({ mode: 'open' });
 shadow.innerHTML = `<style>${UI_CSS}</style>
 <div class="adder" hidden>
-  <button class="b-annotate" title="註をつける（コメントを書く）">✎ 註</button>
-  <button class="b-highlight" title="ハイライトだけ保存">▍ ハイライト</button>
+  <button class="b-annotate icon" title="註（コメントをつける）">${iconHtml('message-square-quote', 18)}</button>
+  <button class="b-shou icon" title="照（ハイライトしてリンクをコピー）">${iconHtml('star', 18)}</button>
 </div>
 <div class="editor" hidden>
   <div class="quote"></div>
-  <textarea placeholder="コメント（#タグ も使えます）。Ctrl+Enter で保存、Esc で取消"></textarea>
-  <div class="row"><span class="hint"></span><button class="b-cancel">取消</button><button class="b-save primary">保存</button></div>
+  <textarea placeholder="#tag  —  Ctrl+Enter ✓  /  Esc ✕"></textarea>
+  <div class="row"><span class="hint"></span><button class="b-cancel icon" title="取消（Esc）">${iconHtml('x', 16)}</button><button class="b-save icon primary" title="保存（Ctrl+Enter）">${iconHtml('check', 16)}</button></div>
 </div>
 <div class="markers"></div>
 <div class="toast" hidden></div>`;
@@ -292,8 +345,13 @@ function mountHost() {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function showToast(text: string, error = false) {
+function showToast(text: string, error = false, detail?: string) {
   toast.textContent = text;
+  if (detail) {
+    const d = document.createElement('code');
+    d.textContent = detail;
+    toast.append(d);
+  }
   toast.classList.toggle('error', error);
   toast.hidden = false;
   clearTimeout(toastTimer);
@@ -363,9 +421,9 @@ function closeEditor() {
   draft = null;
 }
 
-async function save(selector: Selector[], comment: string) {
+async function save(selector: Selector[], comment: string, shou = false) {
   try {
-    const { note, id } = await rpc('createAnnotation', {
+    const { note, id, link } = await rpc('createAnnotation', {
       uris: state.uris,
       title: state.title,
       // 追跡用パラメータなどは除いて記録する
@@ -373,6 +431,7 @@ async function save(selector: Selector[], comment: string) {
       selector,
       comment,
       path: state.note?.path,
+      blockId: shou && state.copyLink,
     });
     setNote(note);
     state.focusId = id;
@@ -384,7 +443,8 @@ async function save(selector: Selector[], comment: string) {
       }
     }, 1200);
     toPanel({ kind: 'focusAnnotation', id, path: note.path });
-    showToast('保存しました');
+    if (link) await copyLink(link);
+    else showToast('保存しました');
     return true;
   } catch (e) {
     showToast(`保存できません: ${e instanceof Error ? e.message : e}`, true);
@@ -392,14 +452,49 @@ async function save(selector: Selector[], comment: string) {
   }
 }
 
+// ---------------------------------------------------------------- 照（リンクのコピー）
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // http のページなどでは使えないので、拡張側（offscreen document）で書く
+    try {
+      return Boolean(await chrome.runtime.sendMessage({ kind: 'copyText', text }));
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function copyLink(link: string) {
+  const ok = await writeClipboard(link);
+  if (ok) showToast('リンクをコピーしました', false, link);
+  else showToast('クリップボードに書けません', true, link);
+}
+
+/** 既存の註のハイライトをクリックしたとき: ブロック ID を付けてリンクをコピー */
+async function copyLinkFor(id: string) {
+  const note = state.note;
+  if (!note) return;
+  try {
+    const r = await rpc('linkToAnnotation', { path: note.path, id });
+    if (r.note.version !== state.note?.version) setNote(r.note);
+    await copyLink(r.link);
+  } catch (e) {
+    showToast(`リンクを作れません: ${e instanceof Error ? e.message : e}`, true);
+  }
+}
+
 adder.addEventListener('mousedown', e => e.preventDefault());
 $<HTMLButtonElement>('.b-annotate').addEventListener('click', () => openEditor());
-$<HTMLButtonElement>('.b-highlight').addEventListener('click', async () => {
+$<HTMLButtonElement>('.b-shou').addEventListener('click', async () => {
   const cap = captureSelection();
   hideAdder();
   if (cap) {
     getSelection()?.removeAllRanges();
-    await save(cap.selector, '');
+    await save(cap.selector, '', true);
   }
 });
 $<HTMLButtonElement>('.b-cancel').addEventListener('click', () => closeEditor());
@@ -435,16 +530,17 @@ function onSelectionEnd() {
 }
 
 document.addEventListener('mouseup', e => {
+  if (!contextAlive()) return g.__obsidiannotTeardown?.();
   if (e.composedPath().includes(host)) return;
   onSelectionEnd();
-});
+}, on);
 document.addEventListener('keyup', e => {
   if (e.shiftKey || e.key === 'Shift') onSelectionEnd();
-});
+}, on);
 document.addEventListener('mousedown', e => {
   if (e.composedPath().includes(host)) return;
   hideAdder();
-});
+}, on);
 
 // ---------------------------------------------------------------- マーカー
 
@@ -510,17 +606,21 @@ function scrollToAnnotation(id: string, flash: boolean): boolean {
 // ---------------------------------------------------------------- クリック・ホバー
 
 document.addEventListener('click', e => {
+  if (!contextAlive()) return g.__obsidiannotTeardown?.();
   if (e.composedPath().includes(host)) return;
   if (getSelection()?.isCollapsed === false) return;
   const id = hitTest(e.clientX, e.clientY);
-  if (id) focusAnnotation(id, true);
-});
+  if (!id) return;
+  focusAnnotation(id, true);
+  if (state.copyLink) void copyLinkFor(id);
+}, on);
 
 let hoverPending = false;
 document.addEventListener(
   'mousemove',
   e => {
     if (hoverPending || !state.anchors.size) return;
+    if (!contextAlive()) return g.__obsidiannotTeardown?.();
     hoverPending = true;
     const { clientX, clientY } = e;
     requestAnimationFrame(() => {
@@ -532,7 +632,7 @@ document.addEventListener(
       }
     });
   },
-  { passive: true },
+  { passive: true, signal: lifetime.signal },
 );
 
 // ---------------------------------------------------------------- DOM の変化・URL の変化
@@ -555,20 +655,24 @@ let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(updateMarkers, 200);
-});
+}, on);
 
 let lastUrl = '';
-setInterval(() => {
+timers.push(setInterval(() => {
+  if (!contextAlive()) {
+    g.__obsidiannotTeardown?.();
+    return;
+  }
   const u = location.href.replace(/#.*$/, '');
   if (u !== lastUrl) {
     lastUrl = u;
     void refreshNote();
   }
-}, 1000);
+}, 1000));
 
 // ---------------------------------------------------------------- メッセージ
 
-chrome.runtime.onMessage.addListener((msg: ContentMessage, _sender, sendResponse) => {
+function onMessage(msg: ContentMessage, _sender: chrome.runtime.MessageSender, sendResponse: (r?: unknown) => void): boolean {
   switch (msg?.kind) {
     case 'pageInfo':
       sendResponse(pageInfo());
@@ -588,7 +692,7 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, _sender, sendResponse
         if (rect && (rect.bottom < 0 || rect.top > innerHeight)) scrollToAnnotation(msg.id, false);
       }
       return false;
-    case 'status': {
+    case 'statusChanged': {
       const st = msg.status as ConnectionStatus;
       if (st.styles) applyStyles(st.styles);
       const was = state.connected;
@@ -615,13 +719,19 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, _sender, sendResponse
     }
   }
   return false;
-});
+}
+chrome.runtime.onMessage.addListener(onMessage);
 
 // ---------------------------------------------------------------- 起動
 
 async function init() {
+  // 旧版（a08）の残りを片付ける
+  document.querySelectorAll('a08-annotator').forEach(e => e.remove());
+  for (const k of [...(CSS.highlights?.keys() ?? [])]) if (String(k).startsWith('a08-')) CSS.highlights.delete(k);
   const settings = await loadSettings();
   state.ignore = ignoreSelectors(settings.ignoreSelectors);
+  state.copyLink = settings.copyLink;
+  updateAdderTitles();
   applyStyles(DEFAULT_STYLES);
   try {
     const st = (await chrome.runtime.sendMessage({ kind: 'status' })) as ConnectionStatus;
@@ -632,7 +742,8 @@ async function init() {
   lastUrl = location.href.replace(/#.*$/, '');
   await refreshNote();
   if (document.body) {
-    new MutationObserver(onMutations).observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer = new MutationObserver(onMutations);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   try {
     const r = (await chrome.runtime.sendMessage({ kind: 'contentReady' })) as { revealId: string | null };
@@ -642,17 +753,24 @@ async function init() {
   }
 }
 
-chrome.storage.onChanged.addListener(changes => {
+function updateAdderTitles() {
+  $<HTMLButtonElement>('.b-shou').title = state.copyLink ? '照（ハイライトしてリンクをコピー）' : '照（ハイライト）';
+}
+
+function onStorage(changes: Record<string, chrome.storage.StorageChange>) {
   if (changes.settings) {
     void loadSettings().then(s => {
       state.ignore = ignoreSelectors(s.ignoreSelectors);
+      state.copyLink = s.copyLink;
+      updateAdderTitles();
       anchorAll();
     });
   }
-});
+}
+chrome.storage.onChanged.addListener(onStorage);
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => void init(), { once: true });
+  document.addEventListener('DOMContentLoaded', () => void init(), { once: true, signal: lifetime.signal });
 } else {
   void init();
 }

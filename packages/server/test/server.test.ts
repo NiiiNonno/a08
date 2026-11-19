@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { parseNote, type Selector } from '@a08/core';
+import { parseNote, parseStyleConfig, type Selector } from '@a08/core';
 import { NoteService } from '../src/note-service.ts';
 import { FsVault } from '../src/fs-vault.ts';
 import { startDevServer } from '../src/dev-server.ts';
@@ -19,7 +20,7 @@ let service: NoteService;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'a08-'));
   service = new NoteService(new FsVault(dir), {
-    folder: 'annotations',
+    folder: 'obsidiannot',
     now: () => new Date('2026-11-18T12:00:00Z'),
   });
 });
@@ -33,7 +34,7 @@ describe('NoteService', () => {
       selector: sel,
       comment: 'first #重要',
     });
-    expect(r1.note.path).toBe('annotations/Example A B.md');
+    expect(r1.note.path).toBe('obsidiannot/Example A B.md');
     expect(r1.note.uris).toEqual(['https://example.com/a', 'https://example.com/canonical']);
     expect(r1.note.annotations[0].tags).toEqual(['重要']);
 
@@ -61,8 +62,8 @@ describe('NoteService', () => {
   it('creates unique files for different pages with the same title', async () => {
     const a = await service.createAnnotation({ uris: ['https://a.example/'], title: 'Same', source: '', selector: sel });
     const b = await service.createAnnotation({ uris: ['https://b.example/'], title: 'Same', source: '', selector: sel });
-    expect(a.note.path).toBe('annotations/Same.md');
-    expect(b.note.path).toBe('annotations/Same (2).md');
+    expect(a.note.path).toBe('obsidiannot/Same.md');
+    expect(b.note.path).toBe('obsidiannot/Same (2).md');
   });
 
   it('serializes concurrent creations for the same page', async () => {
@@ -105,11 +106,44 @@ describe('NoteService', () => {
   });
 
   it('indexes existing notes and ignores _ files', async () => {
-    await mkdir(join(dir, 'annotations/sub'), { recursive: true });
-    await writeFile(join(dir, 'annotations/sub/x.md'), '---\nuris: https://x.example/p\n---\n');
-    await writeFile(join(dir, 'annotations/_styles.md'), '---\nuris: https://x.example/p\n---\n');
+    await mkdir(join(dir, 'obsidiannot/sub'), { recursive: true });
+    await writeFile(join(dir, 'obsidiannot/sub/x.md'), '---\nuris: https://x.example/p\n---\n');
+    await writeFile(join(dir, 'obsidiannot/_draft.md'), '---\nuris: https://x.example/p\n---\n');
     await service.rebuildIndex();
-    expect(service.findPath(['https://x.example/p'])).toBe('annotations/sub/x.md');
+    expect(service.findPath(['https://x.example/p'])).toBe('obsidiannot/sub/x.md');
+  });
+
+  it('creates 照 with a block id and adds ids to existing annotations', async () => {
+    const shou = await service.createAnnotation({ uris: ['https://f.example/'], title: 'F', source: '', selector: sel, blockId: true });
+    const a = shou.note.annotations[0];
+    expect(shou.blockId).toMatch(/^[a-z0-9]{6}$/);
+    expect(a.blockId).toBe(shou.blockId);
+    const plain = await service.createAnnotation({ uris: ['https://f.example/'], title: 'F', source: '', selector: sel, comment: 'c' });
+    const r = await service.ensureBlockId(plain.note.path, plain.id);
+    expect(r.changed).toBe(true);
+    expect(r.note.annotations.find(x => x.id === plain.id)).toMatchObject({ blockId: r.blockId, comment: 'c' });
+    expect(r.blockId).not.toBe(shou.blockId);
+    // コメントを書き換えても ID は残る
+    const up = await service.updateComment(plain.note.path, plain.id, 'new');
+    expect(up.note.annotations.find(x => x.id === plain.id)).toMatchObject({ blockId: r.blockId, comment: 'new' });
+    expect(up.note.content).toContain(`\n^${r.blockId}\n\nnew`);
+  });
+
+  it('renames notes and reads images', async () => {
+    const { note } = await service.createAnnotation({ uris: ['https://g.example/'], title: 'G', source: '', selector: sel });
+    await expect(service.renameNote(note.path, 'a/b')).rejects.toMatchObject({ code: 'bad_request' });
+    const r = await service.renameNote(note.path, '新しい名前');
+    expect(r.note.path).toBe('obsidiannot/新しい名前.md');
+    expect(existsSync(join(dir, note.path))).toBe(false);
+    expect(service.findPath(['https://g.example/'])).toBe('obsidiannot/新しい名前.md');
+    await service.createAnnotation({ uris: ['https://h.example/'], title: 'H', source: '', selector: sel });
+    await expect(service.renameNote(r.note.path, 'H')).rejects.toMatchObject({ code: 'conflict' });
+
+    await mkdir(join(dir, 'img'), { recursive: true });
+    await writeFile(join(dir, 'img/a.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    expect(await service.readResource('img/a.png')).toEqual({ mime: 'image/png', base64: 'iVBORw==' });
+    await expect(service.readResource('../etc/passwd.png')).rejects.toMatchObject({ code: 'bad_request' });
+    await expect(service.readResource('obsidiannot/H.md')).rejects.toMatchObject({ code: 'bad_request' });
   });
 });
 
@@ -173,7 +207,7 @@ describe('AnnotationServer', () => {
     });
     expect(created.ok).toBe(true);
     const html = await call(ws, 'render', { path: created.result.note.path });
-    expect(html.result.html).toContain('a08-card');
+    expect(html.result.html).toContain('obsidiannot-card');
     expect(html.result.html).toContain('quick brown');
 
     const bad = await call(ws, 'saveNote', { path: created.result.note.path, content: 'x', baseVersion: 'old' });
@@ -187,11 +221,13 @@ describe('AnnotationServer', () => {
     await new Promise(r => setTimeout(r, 600));
     expect(events.filter(e => e.event === 'noteChanged').at(-1).data.note.content).toContain('external edit');
 
-    // スタイル変更
-    const stylesPath = join(vaultDir, 'annotations/_styles.md');
-    const styles = await readFile(stylesPath, 'utf8');
-    await writeFile(stylesPath, styles.replace('  重要:', '  最重要:\n    light: { color: red }\n  重要:'));
-    await new Promise(r => setTimeout(r, 600));
+    // 照のリンク
+    const link = await call(ws, 'linkToAnnotation', { path: created.result.note.path, id: created.result.id });
+    expect(link.result.link).toMatch(/^\[\[Srv#\^[a-z0-9]{6}\]\]$/);
+
+    // スタイル変更（Obsidian ではプラグインの設定画面から）
+    srv.setStyles(parseStyleConfig('tags:\n  最重要:\n    light: { color: red }\n').config);
+    await new Promise(r => setTimeout(r, 100));
     const st = events.filter(e => e.event === 'stylesChanged').at(-1);
     expect(st.data.styles.tags[0]).toEqual({ tag: '最重要', style: { light: { color: 'red' }, dark: undefined } });
     ws.close();

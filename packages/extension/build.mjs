@@ -12,6 +12,7 @@ await build({
     content: `${here}src/content.ts`,
     sidepanel: `${here}src/sidepanel.ts`,
     options: `${here}src/options.ts`,
+    offscreen: `${here}src/offscreen.ts`,
   },
   outdir: out,
   bundle: true,
@@ -23,9 +24,10 @@ await build({
   logLevel: 'info',
 });
 
-for (const f of ['manifest.json', 'sidepanel.html', 'sidepanel.css', 'options.html']) {
+for (const f of ['manifest.json', 'sidepanel.html', 'sidepanel.css', 'options.html', 'offscreen.html', 'theme-boot.js']) {
   await cp(`${here}src/${f}`, `${out}${f}`);
 }
+await cp(`${here}src/_locales`, `${out}_locales`, { recursive: true });
 
 // アイコン（黄色の角丸地に濃い縦線＝ハイライトされた行）を PNG で生成
 function crc32(buf) {

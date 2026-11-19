@@ -1,5 +1,6 @@
 /**
- * ```annotation ブロックを「引用カード」として描く。
+ * ```obsidiannot ブロックを「引用カード」として描く。
+ * カード全体のクリックで、ブラウザの該当箇所を開く。
  */
 import { parse as parseYaml } from 'yaml';
 import {
@@ -18,6 +19,8 @@ export type CardContext = {
   noteText: string | null;
   styles: StyleConfig;
   dark: boolean;
+  /** 引用の前後の文脈も表示する */
+  showContext: boolean;
   onReveal: (a: AnnotationData) => void;
 };
 
@@ -38,13 +41,13 @@ function formatDate(iso: string): string {
 }
 
 export function renderCard(source: string, el: HTMLElement, ctx: CardContext) {
-  el.addClass('a08-card-host');
+  el.addClass('obsidiannot-card-host');
   let a: AnnotationData;
   try {
     a = parseYaml(source);
     if (!a || typeof a !== 'object' || a.id == null) throw new Error('id がありません');
   } catch (e) {
-    const err = el.createDiv({ cls: 'a08-card a08-card-error' });
+    const err = el.createDiv({ cls: 'obsidiannot-card obsidiannot-card-error' });
     err.createDiv({ text: `註ブロックを読めません: ${e instanceof Error ? e.message : e}` });
     err.createEl('pre', { text: source });
     return;
@@ -60,53 +63,47 @@ export function renderCard(source: string, el: HTMLElement, ctx: CardContext) {
   const idx = styleIndicesForTags(ctx.styles, tags);
   const st = idx.length ? ctx.styles.tags[idx[0]].style : ctx.styles.default;
 
-  const card = el.createDiv({ cls: 'a08-card' });
+  const card = el.createDiv({ cls: 'obsidiannot-card' });
   card.dataset.annotationId = a.id;
-  card.style.setProperty('--a08-accent', accentColor(st, ctx.dark));
+  card.style.setProperty('--obsidiannot-accent', accentColor(st, ctx.dark));
   if (tags.length) card.dataset.tags = tags.join(' ');
+  if (a.source) card.setAttr('title', a.source);
 
   const q = a.selector.find((s): s is TextQuoteSelector => s.type === 'TextQuoteSelector');
-  const quote = card.createEl('blockquote', { cls: 'a08-quote' });
-  if (q?.prefix) quote.createSpan({ cls: 'a08-context', text: `…${q.prefix.replace(/\s+/g, ' ').slice(-24)}` });
-  quote.createSpan({ cls: 'a08-exact', text: displayQuote(quoteOf(a)) || '（引用なし）' });
-  if (q?.suffix) quote.createSpan({ cls: 'a08-context', text: `${q.suffix.replace(/\s+/g, ' ').slice(0, 24)}…` });
-
-  const meta = card.createDiv({ cls: 'a08-meta' });
-  if (a.source) {
-    const src = meta.createEl('a', { cls: 'a08-source', text: hostOf(a.source), href: a.source });
-    src.setAttr('title', a.source);
-    src.addEventListener('click', ev => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      ctx.onReveal(a);
-    });
+  const quote = card.createEl('blockquote', { cls: 'obsidiannot-quote' });
+  if (ctx.showContext && q?.prefix) {
+    quote.createSpan({ cls: 'obsidiannot-context', text: `…${q.prefix.replace(/\s+/g, ' ').slice(-24)}` });
   }
-  if (a.created) meta.createSpan({ cls: 'a08-created', text: formatDate(String(a.created)) });
-  for (const t of tags) meta.createSpan({ cls: 'a08-tag', text: `#${t}` });
+  quote.createSpan({ cls: 'obsidiannot-exact', text: displayQuote(quoteOf(a)) || '（引用なし）' });
+  if (ctx.showContext && q?.suffix) {
+    quote.createSpan({ cls: 'obsidiannot-context', text: `${q.suffix.replace(/\s+/g, ' ').slice(0, 24)}…` });
+  }
 
-  const btn = meta.createEl('button', { cls: 'a08-reveal', text: 'ブラウザで開く' });
-  btn.dataset.a08Action = 'reveal';
-  btn.addEventListener('click', ev => {
+  const meta = card.createDiv({ cls: 'obsidiannot-meta' });
+  if (a.source) meta.createSpan({ cls: 'obsidiannot-source', text: hostOf(a.source) });
+  if (a.created) meta.createSpan({ cls: 'obsidiannot-created', text: formatDate(String(a.created)) });
+  for (const t of tags) meta.createSpan({ cls: 'obsidiannot-tag', text: `#${t}` });
+  if (a.source) meta.createSpan({ cls: 'obsidiannot-open-hint', text: 'Click to open in browser' });
+
+  // Live Preview ではクリックでソース編集に入るのを止める（編集はブロック右上の </> から）
+  const stop = (ev: Event) => {
     ev.preventDefault();
     ev.stopPropagation();
-    ctx.onReveal(a);
-  });
-  quote.addEventListener('click', ev => {
-    // Live Preview でクリックするとソース編集に入るので、修飾キー付きのときだけ移動する
-    if (ev.ctrlKey || ev.metaKey || card.closest('.markdown-reading-view, .markdown-preview-view')) {
-      ev.preventDefault();
-      ctx.onReveal(a);
-    }
+  };
+  card.addEventListener('mousedown', stop);
+  card.addEventListener('click', ev => {
+    stop(ev);
+    if (a.source) ctx.onReveal(a);
   });
 }
 
 export function renderStylesPreview(config: StyleConfig, el: HTMLElement, dark: boolean, error?: string) {
-  const box = el.createDiv({ cls: 'a08-styles' });
-  if (error) box.createDiv({ cls: 'a08-card-error', text: `設定を読めません（既定値を使用中）: ${error}` });
+  const box = el.createDiv({ cls: 'obsidiannot-styles' });
+  if (error) box.createDiv({ cls: 'obsidiannot-card-error', text: `設定を読めません（既定値を使用中）: ${error}` });
   const row = (label: string, decl: Record<string, string | undefined>) => {
-    const r = box.createDiv({ cls: 'a08-style-row' });
-    r.createSpan({ cls: 'a08-style-label', text: label });
-    const sample = r.createSpan({ cls: 'a08-style-sample', text: 'ハイライトの見本 Sample text' });
+    const r = box.createDiv({ cls: 'obsidiannot-style-row' });
+    r.createSpan({ cls: 'obsidiannot-style-label', text: label });
+    const sample = r.createSpan({ cls: 'obsidiannot-style-sample', text: 'ハイライトの見本 Sample text' });
     for (const [k, v] of Object.entries(decl)) if (v) sample.style.setProperty(k, v);
   };
   const pick = (s: StyleConfig['default']) => (dark && s.dark) || s.light;

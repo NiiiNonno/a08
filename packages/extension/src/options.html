@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>a08 註 — 設定</title>
+  <title>Settings</title>
   <style>
     :root { color-scheme: light dark; }
     body { font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; }
@@ -15,12 +15,14 @@
     button { font: inherit; padding: 4px 14px; border-radius: 6px; border: 1px solid #8888; background: ButtonFace; color: ButtonText; cursor: pointer; }
     #status { font-size: 13px; }
     .ok { color: #1a7f37; } .ng { color: #d93025; }
+    label.check { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+    label.check input { width: auto; }
   </style>
 </head>
 <body>
-  <h1>a08 註 — 設定</h1>
+  <h1 id="heading">設定</h1>
   <label for="token">接続トークン</label>
-  <div class="desc">Obsidian のプラグイン「a08 Annotations」の設定画面、またはコマンド「拡張用の接続トークンをコピー」で取得できます。</div>
+  <div class="desc">Obsidian のプラグイン「Obsidiannot」の設定画面、またはコマンド「拡張用の接続トークンをコピー」で取得できます。</div>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
 
   <label for="port">ポート</label>
@@ -30,6 +32,9 @@
   <label for="ignore">無視する要素（CSS セレクタ、1 行に 1 つ）</label>
   <div class="desc">対訳型の翻訳拡張が挿入する訳文などを指定すると、その中の文字はハイライトや位置の計算に使われません（原文側に註をつけるため）。</div>
   <textarea id="ignore" spellcheck="false"></textarea>
+
+  <label class="check"><input id="copyLink" type="checkbox"> 照でリンクをコピーする</label>
+  <div class="desc">オンにすると、照（★）で保存したときや、既存のハイライトをクリックしたときに、註ブロックへの内部リンク（<code>[[ノート#^id]]</code>）をクリップボードにコピーします。オフにすると、照はただのハイライトになります。</div>
 
   <div class="row">
     <button id="save">保存して接続</button>

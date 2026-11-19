@@ -5,7 +5,6 @@ import {
   DEFAULT_STYLES_YAML,
   buildHighlightCss,
   parseStyleConfig,
-  styleConfigFromMarkdown,
   styleIndicesForTags,
 } from '../src/styles.ts';
 
@@ -50,11 +49,9 @@ describe('styles', () => {
     expect(styleIndicesForTags(DEFAULT_STYLES, ['疑問', '重要/大', 'その他'])).toEqual([0, 2]);
     expect(styleIndicesForTags(DEFAULT_STYLES, [])).toEqual([]);
   });
-  it('reads config from markdown and builds css', () => {
-    const md = `説明\n\n\`\`\`annotation-styles\n${DEFAULT_STYLES_YAML}\`\`\`\n`;
-    expect(styleConfigFromMarkdown(md).config).toEqual(DEFAULT_STYLES);
+  it('builds highlight css', () => {
     const css = buildHighlightCss(DEFAULT_STYLES);
-    expect(css).toContain('::highlight(a08-t1) { text-decoration: underline 2px #2f6fde;');
+    expect(css).toContain('::highlight(obsidiannot-t1) { text-decoration: underline 2px #2f6fde;');
     expect(css).toContain('@media (prefers-color-scheme: dark)');
   });
 });
