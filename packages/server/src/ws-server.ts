@@ -211,6 +211,21 @@ export class AnnotationServer {
         result = { note: r.note, link: hooks.linkTo(r.note.path, r.blockId) };
         break;
       }
+      case 'createNote': {
+        const cp = p as RequestMap['createNote']['params'];
+        if (!Array.isArray(cp.uris)) throw new ProtocolError('bad_request', 'uris が必要です');
+        const r = await service.createNote(cp.uris, typeof cp.title === 'string' ? cp.title : '');
+        if (r.created) this.noteChangedAfterReply(r.note.path, r.note);
+        result = r;
+        break;
+      }
+      case 'deleteNote': {
+        const path = str('path');
+        await service.deleteNote(path);
+        this.noteChangedAfterReply(path, null);
+        result = null;
+        break;
+      }
       case 'renameNote': {
         const from = str('path');
         const r = await service.renameNote(from, str('name'));

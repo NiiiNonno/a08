@@ -45,6 +45,13 @@ export class ObsidianVault implements VaultAdapter {
     await this.app.fileManager.renameFile(f, normalizePath(to));
   }
 
+  async trash(path: string): Promise<void> {
+    const f = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    if (!(f instanceof TFile)) throw new Error(`ファイルがありません: ${path}`);
+    // 「削除したファイル」の設定（システムのゴミ箱 / .trash / 完全に削除）に従う
+    await this.app.fileManager.trashFile(f);
+  }
+
   async readBinary(path: string): Promise<Uint8Array | null> {
     const f = this.app.vault.getAbstractFileByPath(normalizePath(path));
     return f instanceof TFile ? new Uint8Array(await this.app.vault.readBinary(f)) : null;

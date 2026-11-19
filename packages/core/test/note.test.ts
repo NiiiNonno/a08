@@ -71,6 +71,8 @@ describe('note', () => {
   it('does not write a title heading into new notes', () => {
     const c = createNoteContent({ titles: ['Paper'], uris: ['https://a.example/x'] });
     expect(c).not.toMatch(/^#/m);
+    // 作成日時はファイルの作成日時と重なるので書かない
+    expect(c).not.toContain('created');
     expect(c.endsWith('---\n')).toBe(true);
   });
 

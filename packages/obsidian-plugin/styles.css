@@ -4,9 +4,27 @@
   background: var(--background-secondary);
   border-radius: var(--radius-s, 4px);
   padding: 0.4em 0.75em;
-  /* 上の註のコメントより、下に続く自分のコメントに近く見えるよう、上を広く空ける */
-  margin: 1.4em 0 0.35em;
+  margin: 0;
   cursor: pointer;
+}
+/*
+ * 閲覧表示（とサイドパネル）では、上の註のコメントより下に続く自分のコメントに近く見えるよう、上を広く空ける。
+ * 編集表示（Live Preview）では余白を付けない（ホバー時の枠や </> の位置がずれるため）
+ */
+.markdown-preview-view .obsidiannot-card {
+  margin: 1.4em 0 0.35em;
+}
+.markdown-source-view .obsidiannot-card {
+  margin: 0;
+}
+/* サイドパネル用の描画に使う、見えない置き場 */
+.obsidiannot-offscreen {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 600px;
+  visibility: hidden;
+  pointer-events: none;
 }
 .obsidiannot-card:hover {
   background: var(--background-modifier-hover);

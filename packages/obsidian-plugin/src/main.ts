@@ -10,6 +10,7 @@ import {
   TFile,
   getLinkpath,
   normalizePath,
+  setIcon,
   type App,
 } from 'obsidian';
 import {
@@ -262,7 +263,10 @@ export default class ObsidiannotPlugin extends Plugin {
   }
 
   async render(path: string, content: string): Promise<string> {
-    const el = document.createElement('div');
+    // 画面に付いていない要素では、コールアウトのアイコンなど一部が描かれないので、
+    // 見えない場所に置いた要素に描く
+    const host = document.body.createDiv({ cls: 'obsidiannot-offscreen markdown-preview-view markdown-rendered' });
+    const el = host.createDiv();
     const comp = new Component();
     comp.load();
     this.renderTexts.set(path, content);
@@ -275,11 +279,23 @@ export default class ObsidiannotPlugin extends Plugin {
         await new Promise(r => setTimeout(r, 50));
         if (!el.querySelector('.internal-embed:not(.is-loaded)')) break;
       }
+      this.fillCalloutIcons(el);
       this.markResources(el, path);
       return el.innerHTML;
     } finally {
       comp.unload();
+      host.remove();
       this.renderTexts.delete(path);
+    }
+  }
+
+  /** アイコンが空のコールアウトに、種類ごとのアイコン（CSS 変数 --callout-icon）を入れる */
+  private fillCalloutIcons(el: HTMLElement) {
+    for (const iconEl of Array.from(el.querySelectorAll<HTMLElement>('.callout-icon'))) {
+      if (iconEl.querySelector('svg')) continue;
+      const callout = iconEl.closest<HTMLElement>('.callout');
+      const name = callout ? getComputedStyle(callout).getPropertyValue('--callout-icon').trim() : '';
+      setIcon(iconEl, name || 'lucide-pencil');
     }
   }
 

@@ -544,26 +544,62 @@ document.addEventListener('mousedown', e => {
 
 // ---------------------------------------------------------------- マーカー
 
+/**
+ * ページの中でスクロールする要素（overflow: auto/scroll で、中身がはみ出しているもの）のうち、
+ * node に最も近いもの。なければ null（ウィンドウ全体がスクロールするページ）。
+ * Obsidian Publish などは本文が独自のスクロール領域の中にある。
+ */
+function scrollableAncestor(node: Node): HTMLElement | null {
+  let el: Element | null = node instanceof Element ? node : node.parentElement;
+  while (el && el !== document.body && el !== document.documentElement) {
+    if (el instanceof HTMLElement && el.scrollHeight > el.clientHeight + 1) {
+      const oy = getComputedStyle(el).overflowY;
+      if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+/** 範囲の最初の矩形が、スクロール領域に隠れず画面内に見えているか */
+function visibleRect(range: Range): DOMRect | null {
+  const rect = [...range.getClientRects()].find(r => r.width > 0 || r.height > 0);
+  if (!rect) return null;
+  if (rect.bottom < 0 || rect.top > innerHeight) return null;
+  const sc = scrollableAncestor(range.startContainer);
+  if (sc) {
+    const b = sc.getBoundingClientRect();
+    if (rect.bottom < b.top || rect.top > b.bottom) return null;
+  }
+  return rect;
+}
+
+/**
+ * 余白マーカー（右端の短いバー）。画面に見えている註だけを、画面上の位置に出す。
+ * スクロールのたびに描き直すので、ウィンドウでも内側のスクロール領域でも追従する。
+ */
 function updateMarkers() {
   markers.replaceChildren();
   if (!state.anchors.size) return;
   mountHost();
-  const docW = document.documentElement.clientWidth;
+  const right = document.documentElement.clientWidth - 10;
   const seen = new Set<number>();
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   for (const [id, { a, ranges }] of state.anchors) {
-    const rect = ranges[0]?.getClientRects()[0];
-    if (!rect || (rect.width === 0 && rect.height === 0)) continue;
-    const top = Math.round(rect.top + scrollY);
+    const rect = ranges[0] && visibleRect(ranges[0]);
+    if (!rect) continue;
+    const top = Math.round(rect.top);
     if (seen.has(top)) continue;
     seen.add(top);
     const m = document.createElement('div');
     m.className = 'marker';
     const idx = styleIndicesForTags(state.styles, a.tags);
     const st = idx.length ? state.styles.tags[idx[0]].style : state.styles.default;
-    m.style.setProperty('--c', accentColor(st, matchMedia('(prefers-color-scheme: dark)').matches));
+    m.style.setProperty('--c', accentColor(st, dark));
     m.style.top = `${top}px`;
-    m.style.left = `${scrollX + docW - 10}px`;
+    m.style.left = `${right}px`;
     m.style.height = `${Math.max(12, Math.round(rect.height))}px`;
+    m.dataset.annotationId = id;
     m.title = a.comment ? a.comment.slice(0, 200) : quoteOf(a).slice(0, 200);
     m.addEventListener('click', () => {
       focusAnnotation(id, true);
@@ -571,6 +607,17 @@ function updateMarkers() {
     markers.appendChild(m);
   }
 }
+
+let markerFrame = 0;
+function scheduleMarkers() {
+  if (markerFrame) return;
+  markerFrame = requestAnimationFrame(() => {
+    markerFrame = 0;
+    updateMarkers();
+  });
+}
+// 内側のスクロール領域のスクロールも拾うため、捕捉段階で受ける
+document.addEventListener('scroll', scheduleMarkers, { capture: true, passive: true, signal: lifetime.signal });
 
 // ---------------------------------------------------------------- スクロール・フォーカス
 
@@ -592,10 +639,21 @@ function scrollToAnnotation(id: string, flash: boolean): boolean {
     state.pendingScroll = id;
     return false;
   }
-  const rect = anc.ranges[0].getBoundingClientRect();
-  const el = anc.ranges[0].startContainer.parentElement;
+  const range = anc.ranges[0];
+  const rect = range.getBoundingClientRect();
+  const el = range.startContainer.parentElement;
+  const sc = scrollableAncestor(range.startContainer);
   if (rect.height === 0 && el) {
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  } else if (sc) {
+    // 本文が内側のスクロール領域にあるページ: その領域をスクロールする
+    let b = sc.getBoundingClientRect();
+    if (b.bottom < 0 || b.top > innerHeight) {
+      sc.scrollIntoView({ block: 'nearest' });
+      b = sc.getBoundingClientRect();
+    }
+    const visibleH = Math.min(b.bottom, innerHeight) - Math.max(b.top, 0);
+    sc.scrollTo({ top: sc.scrollTop + (rect.top - b.top) - visibleH / 3, behavior: 'smooth' });
   } else {
     scrollTo({ top: rect.top + scrollY - innerHeight / 3, behavior: 'smooth' });
   }
@@ -654,7 +712,7 @@ function onMutations(records: MutationRecord[]) {
 let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(updateMarkers, 200);
+  resizeTimer = setTimeout(scheduleMarkers, 200);
 }, on);
 
 let lastUrl = '';
@@ -688,8 +746,7 @@ function onMessage(msg: ContentMessage, _sender: chrome.runtime.MessageSender, s
       paintTransient();
       if (msg.id) {
         const anc = state.anchors.get(msg.id);
-        const rect = anc?.ranges[0]?.getBoundingClientRect();
-        if (rect && (rect.bottom < 0 || rect.top > innerHeight)) scrollToAnnotation(msg.id, false);
+        if (anc?.ranges[0] && !visibleRect(anc.ranges[0])) scrollToAnnotation(msg.id, false);
       }
       return false;
     case 'statusChanged': {

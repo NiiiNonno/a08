@@ -239,11 +239,9 @@ export function serializeAnnotation(a: AnnotationData): string {
 }
 
 /** 新しいノートの本文 */
-export function createNoteContent(meta: NoteMeta, now = new Date()): string {
-  const fm = stringifyYaml(
-    { titles: meta.titles, uris: meta.uris, created: localIsoString(now) },
-    { lineWidth: 0 },
-  );
+export function createNoteContent(meta: NoteMeta): string {
+  // 作成日時はファイルの作成日時（OS・Obsidian が持っている）と重なるので書かない
+  const fm = stringifyYaml({ titles: meta.titles, uris: meta.uris }, { lineWidth: 0 });
   return `---\n${fm}---\n`;
 }
 

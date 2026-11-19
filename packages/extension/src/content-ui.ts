@@ -68,7 +68,7 @@ button.primary:hover { background: #255fc4; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.markers { position: absolute; top: 0; left: 0; width: 0; height: 0; }
+.markers { position: fixed; top: 0; left: 0; width: 0; height: 0; }
 .marker {
   position: absolute;
   width: 5px;

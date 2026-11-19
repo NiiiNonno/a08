@@ -30,6 +30,8 @@ export interface VaultAdapter {
   rename(from: string, to: string): Promise<void>;
   /** バイナリ（画像など）。なければ null */
   readBinary(path: string): Promise<Uint8Array | null>;
+  /** 削除（Obsidian ではゴミ箱へ） */
+  trash(path: string): Promise<void>;
 }
 
 export function contentVersion(content: string): string {
@@ -195,7 +197,7 @@ export class NoteService {
         const again = this.findPath(uris);
         if (again) return again;
         const p = await this.uniquePath(title);
-        await this.writeNote(p, createNoteContent({ titles: [title], uris }, this.now()));
+        await this.writeNote(p, createNoteContent({ titles: [title], uris }));
         created = true;
         return p;
       });
@@ -233,6 +235,28 @@ export class NoteService {
       content = appendAnnotation(content, data, params.comment ?? '', blockId).text;
       const note = await this.writeNote(target, content);
       return { note, id, blockId };
+    });
+  }
+
+  /** 註のない空のノートを作る（URI に一致するノートが既にあればそれを返す） */
+  async createNote(urisIn: string[], titleIn: string): Promise<{ note: NoteView; created: boolean }> {
+    const uris = dedupeUris(urisIn.filter(Boolean));
+    const title = titleIn.trim() || uris[0] || 'untitled';
+    return this.withLock(`new:${title}`, async () => {
+      const found = this.findPath(uris);
+      if (found) return { note: (await this.getNote(found))!, created: false };
+      const p = await this.uniquePath(title);
+      return { note: await this.writeNote(p, createNoteContent({ titles: [title], uris })), created: true };
+    });
+  }
+
+  /** ノートを削除する */
+  async deleteNote(path: string): Promise<void> {
+    if (!this.isNotePath(path)) throw new ProtocolError('bad_request', `註ノートではありません: ${path}`);
+    await this.withLock(path, async () => {
+      await this.readNote(path);
+      await this.vault.trash(path);
+      this.fileDeleted(path);
     });
   }
 

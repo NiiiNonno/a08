@@ -2,6 +2,7 @@
 
 `packages/core/src/anchoring/` の一部は Hypothesis client から移植しています。
 Chrome 拡張のアイコンは Lucide を同梱しています（Obsidian と同じアイコン集）。
+「Obsidian で開く」ボタンの画像（`packages/extension/src/obsidian-logo.svg`）は Obsidian の公式ロゴ（https://obsidian.md/images/obsidian-logo-gradient.svg）です。Obsidian の名称とロゴは Dynalist Inc. の商標で、このプロジェクトは Obsidian の公式のものではありません。
 
 ## hypothesis/client
 

@@ -29,7 +29,8 @@ const viewHost = $('view');
 const editorEl = $('editor');
 const modeBtn = $<HTMLButtonElement>('b-mode');
 const obsidianBtn = $<HTMLButtonElement>('b-obsidian');
-obsidianBtn.append(icon('gem', 18));
+const deleteBtn = $<HTMLButtonElement>('b-delete');
+deleteBtn.append(icon('trash-2', 17));
 
 /**
  * 表示モードは Shadow DOM の中に Obsidian の CSS と同じ構造で描く
@@ -177,6 +178,7 @@ function renderHeader() {
   // ボタンを先に更新する（下の処理で失敗しても状態がずれないように）
   modeBtn.disabled = !note;
   obsidianBtn.disabled = !note;
+  deleteBtn.disabled = !note;
   // Obsidian と同じく、押すと切り替わる先のアイコンを出す
   const edit = state.mode === 'edit';
   const want = edit ? 'book-open' : 'pen-line';
@@ -201,12 +203,28 @@ function renderHeader() {
         subEl.append(w);
       }
     } else if (info) {
-      subEl.textContent = info.url;
+      // URL がとても長いサイトがあるので、短くして表示する（全体はツールチップ）
+      const u = document.createElement('span');
+      u.className = 'url';
+      u.textContent = shortUrl(info.url);
+      u.title = info.url;
+      subEl.append(u);
     }
     if (edit && saveStateEl) subEl.append(saveStateEl);
   } catch (e) {
     console.error(LOG, 'renderHeader', e);
   }
+}
+
+function shortUrl(url: string, max = 80): string {
+  let s = url;
+  try {
+    const u = new URL(url);
+    s = `${u.host}${decodeURI(u.pathname)}${u.search}`;
+  } catch {
+    /* そのまま */
+  }
+  return [...s].length > max ? `${[...s].slice(0, max - 1).join('')}…` : s;
 }
 
 // ---------------------------------------------------------------- ファイル名の変更
@@ -368,7 +386,14 @@ async function renderView(force = false) {
       `本文を選択すると出る ${iconHtml('message-square-quote', 16)}（註）か ${iconHtml('star', 16)}（照）で、` +
       `<code></code> にノートが作られます。`;
     hint.querySelector('code')!.textContent = `${folder}/`;
-    emptyMessage('このページの註はまだありません。', hint);
+    const create = document.createElement('button');
+    create.className = 'create';
+    create.append(icon('file-plus', 16), '空のノートを作る');
+    create.title = 'このページの URI を持つノートを作り、編集を始めます';
+    create.addEventListener('click', () => void createEmptyNote());
+    const box = document.createElement('div');
+    box.append(hint, create);
+    emptyMessage('このページの註はまだありません。', box);
     return;
   }
   let html: string;
@@ -856,6 +881,41 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 chrome.windows.onFocusChanged.addListener(() => void loadActiveTab());
 
 modeBtn.addEventListener('click', () => void toggleMode());
+async function createEmptyNote() {
+  const info = state.info;
+  if (!info) return;
+  try {
+    const { note } = await rpc('createNote', { uris: info.uris, title: info.title });
+    setNote(note, true);
+    if (state.mode !== 'edit') await toggleMode();
+  } catch (e) {
+    alert(`ノートを作れません: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+deleteBtn.addEventListener('click', async () => {
+  const note = state.note;
+  if (!note) return;
+  const n = note.annotations.length;
+  const msg =
+    `ノート「${baseName(note.path)}」を削除しますか？` +
+    (n ? `\n註 ${n} 件も消え、ページのハイライトもなくなります。` : '') +
+    '\nObsidian の「削除したファイル」の設定（ゴミ箱など）に従います。';
+  if (!confirm(msg)) return;
+  try {
+    if (state.mode === 'edit') {
+      clearTimeout(saveTimer);
+      state.dirty = false;
+    }
+    await rpc('deleteNote', { path: note.path });
+    saveStateEl?.remove();
+    // 編集中なら閲覧表示に戻る（setNote が行う）
+    setNote(null, true);
+  } catch (e) {
+    alert(`削除できません: ${e instanceof Error ? e.message : e}`);
+  }
+});
+
 obsidianBtn.addEventListener('click', () => {
   if (state.note) void rpc('openInObsidian', { path: state.note.path }).catch(e => alert(e.message));
 });

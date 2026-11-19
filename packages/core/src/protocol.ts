@@ -81,6 +81,13 @@ export type RequestMap = {
     params: { path: string; id: string };
     result: { note: NoteView; link: string };
   };
+  /** 註のない空のノートを作る（既にあればそれを返す） */
+  createNote: {
+    params: { uris: string[]; title: string };
+    result: { note: NoteView; created: boolean };
+  };
+  /** ノートを削除する（Obsidian ではゴミ箱へ。設定に従う） */
+  deleteNote: { params: { path: string }; result: null };
   /** ノートのファイル名を変える（name は拡張子なし）。Obsidian ではリンクも更新される */
   renameNote: {
     params: { path: string; name: string };

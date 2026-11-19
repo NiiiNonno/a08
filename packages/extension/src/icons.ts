@@ -1,14 +1,15 @@
 /** lucide のアイコン（ISC License）。Obsidian と同じ名前で使う */
-import { BookOpen, Check, Gem, MessageSquareQuote, PenLine, Pencil, Star, X, createElement } from 'lucide';
+import { BookOpen, Check, FilePlus, MessageSquareQuote, PenLine, Pencil, Star, Trash2, X, createElement } from 'lucide';
 
 const ICONS = {
   'book-open': BookOpen,
   check: Check,
-  gem: Gem,
+  'file-plus': FilePlus,
   'message-square-quote': MessageSquareQuote,
   'pen-line': PenLine,
   pencil: Pencil,
   star: Star,
+  'trash-2': Trash2,
   x: X,
 };
 

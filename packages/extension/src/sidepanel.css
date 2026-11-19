@@ -54,7 +54,16 @@ button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: 0.45; cursor: default; }
 button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; background: transparent; border-color: transparent; color: var(--muted); }
 button.icon:hover:not(:disabled) { color: var(--fg); }
-button svg { display: block; }
+button svg, button img { display: block; }
+#b-delete:hover:not(:disabled) { color: var(--color-red, #d93025); }
+.sub .url {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 
 header {

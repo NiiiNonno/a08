@@ -29,6 +29,7 @@ Obsidian プラグイン
   - コメントを YAML の外に置くことで、wikilink・タグ・バックリンク・検索がそのまま効く
   - コメントの範囲は「次の obsidiannot ブロック」か「見出し行」の手前まで
 - ノートの先頭にタイトルの見出しは書かない（タイトルは frontmatter の `titles` だけ）
+- ノートの frontmatter に作成日時は書かない（ファイルの作成日時と重なるため）。註ごとの `created` は残す
 - selector は W3C Web Annotation / Hypothesis と同じ形（TextQuote / TextPosition / Range、PDF 用に PageSelector も型だけ用意）
 - 未知のキーはブロック内に保持して書き戻す（将来の拡張用）
 - YAML にバッククォート列が含まれる場合は、フェンスを長くして壊れないようにする
@@ -92,6 +93,8 @@ UI（註ボタン、入力欄、余白マーカー、通知）は `<html>` 直�
 - 設定は Obsidian プラグインの設定画面（YAML。data.json に保存）。vault にファイルとしては置かない
 - 使えるプロパティは仕様上 color / background-color / text-decoration 系 / text-shadow のみ。値はサニタイズしてから CSS にする
 - クリック判定は `caretPositionFromPoint` と `Range.getClientRects()` で行う（ハイライト自体はイベントを持たない）
+- 余白マーカーは画面上の位置（`position: fixed`）に、見えている註の分だけ出し、スクロールのたびに描き直す。スクロールは捕捉段階で受けるので、本文が内側の要素でスクロールするページ（Obsidian Publish など）でも追従する
+- 該当箇所へのスクロールは、範囲に最も近いスクロールする要素（`overflow: auto/scroll` ではみ出しているもの）を動かす。なければウィンドウ
 - DOM の変化（動的な読み込みなど）は MutationObserver で監視し、壊れた註や未特定の註があれば再アンカリングする
 - SPA の URL 変化は 1 秒ごとの確認で検知し、ノートを引き直す
 
@@ -109,6 +112,9 @@ UI（註ボタン、入力欄、余白マーカー、通知）は `<html>` 直�
   - 註カードのクリックは、パネルではページ内の該当箇所へのスクロールになる（Obsidian ではブラウザで開く）
 - ボタンはアイコン（Lucide。Obsidian と同じアイコン集）。編集は `pen-line`、表示に戻るのは `book-open`
 - ファイル名をクリックすると改名できる（プラグインは `fileManager.renameFile` を使うので、リンクも設定どおり更新される）
+- 註のないページでは、そのページの URI を持つ空のノートを作れる（作るとそのまま編集モード）。ノートの削除は `fileManager.trashFile`（ユーザーの削除設定に従う）
+- 「Obsidian で開く」のボタンは Obsidian の公式ロゴ（obsidian.md から取得して同梱）
+- プラグインは、サイドパネル用の描画を画面外に置いた要素で行う（画面に付いていない要素では、コールアウトのアイコンなど一部が描かれないため）。それでも空のコールアウトのアイコンは、種類ごとの `--callout-icon` から入れる
 - 編集モード: CodeMirror 6（Obsidian と同じエディタ基盤）。入力が 0.8 秒止まると保存。保存時に版（内容のハッシュ）を送り、Obsidian 側で変更されていれば競合として確認を出す
 - 註の行には薄い背景を付ける。ページ側でハイライトをクリックすると、対応する位置にカーソルを移す
 

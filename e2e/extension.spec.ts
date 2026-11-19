@@ -600,3 +600,86 @@ test('タブを切り替えると、サイドパネルがそのタブのノー�
   await a.close();
   await b.close();
 });
+
+test('本文が内側の要素でスクロールするページでも、余白マーカーが追従し、該当箇所へスクロールできる', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/scroller.html`);
+  await expect(page.locator('obsidiannot-ui')).toHaveCount(0);
+  for (const t of ['inner marker phrase', 'deep paragraph']) {
+    if (t === 'deep paragraph') await page.evaluate(() => document.getElementById('s2')!.scrollIntoView());
+    await selectText(page, t);
+    await page.locator('obsidiannot-ui .b-shou').click();
+    await expect(page.locator('obsidiannot-ui .toast')).toContainText('リンクをコピーしました');
+  }
+  const markerTops = () =>
+    page.evaluate(() =>
+      [...document.querySelector('obsidiannot-ui')!.shadowRoot!.querySelectorAll<HTMLElement>('.marker')].map(m => Math.round(parseFloat(m.style.top))),
+    );
+  const rectTop = (id: string) => page.evaluate(i => Math.round(document.getElementById(i)!.getBoundingClientRect().top), id);
+
+  // 下の段落が見えている: そのマーカーだけが、段落の位置に出る
+  await expect.poll(async () => (await markerTops()).length).toBe(1);
+  expect(Math.abs((await markerTops())[0] - (await rectTop('s2')))).toBeLessThan(30);
+
+  // 内側の要素を上までスクロールすると、マーカーも追従する
+  await page.evaluate(() => (document.getElementById('scroller')!.scrollTop = 0));
+  await expect.poll(async () => (await markerTops()).length).toBe(1);
+  await expect.poll(async () => Math.abs((await markerTops())[0] - (await rectTop('s1')))).toBeLessThan(30);
+
+  // Obsidian から開く（サイドパネルのカードのクリックも同じ）: 内側の要素がスクロールする
+  const note = parseNote(await readFile(join(vault, 'obsidiannot', 'Scroller Page.md'), 'utf8'));
+  const deep = note.annotations.find(a => a.selector.some(s => s.type === 'TextQuoteSelector' && s.exact === 'deep paragraph'))!;
+  dev.server.broadcast('reveal', { path: 'obsidiannot/Scroller Page.md', id: deep.id, uris: note.uris, source: deep.source, url: deep.source });
+  await expect.poll(() => page.evaluate(() => document.getElementById('scroller')!.scrollTop), { timeout: 5000 }).toBeGreaterThan(1000);
+  await expect.poll(async () => {
+    const t = await rectTop('s2');
+    return t > 0 && t < 800;
+  }).toBe(true);
+  await page.close();
+});
+
+test('サイドパネルから空のノートを作って編集し、削除できる。長い URL は短く表示する', async () => {
+  const long = `${base}/other.html?q=${'very-long-query-'.repeat(30)}`;
+  const page = await context.newPage();
+  await page.goto(long);
+  const tabId = await tabIdOf(page.url());
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${extId}/sidepanel.html?tab=${tabId}`);
+  await expect(panel.locator('.empty')).toContainText('このページの註はまだありません');
+  // URL は短く（全体はツールチップ）
+  const shown = (await panel.locator('#sub .url').textContent())!;
+  expect([...shown].length).toBeLessThanOrEqual(80);
+  expect(shown.endsWith('…')).toBe(true);
+  expect(await panel.locator('#sub .url').getAttribute('title')).toBe(page.url());
+  // Obsidian の公式ロゴ
+  await expect(panel.locator('#b-obsidian img[src="obsidian-logo.svg"]')).toHaveCount(1);
+  expect(await panel.locator('#b-obsidian img').evaluate(i => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+  const before = new Set(await noteFiles());
+  await panel.locator('.empty button.create').click();
+  // そのまま編集モードに入る
+  await expect(panel.locator('.cm-editor')).toBeVisible();
+  await expect(panel.locator('#b-mode svg.lucide-book-open')).toHaveCount(1);
+  const created = (await noteFiles()).filter(f => !before.has(f));
+  expect(created).toEqual(['Another page.md']);
+  const text = await readFile(join(vault, 'obsidiannot', 'Another page.md'), 'utf8');
+  const parsed = parseNote(text);
+  expect(parsed.titles).toEqual(['Another page']);
+  expect(parsed.uris).toContain(page.url().replace(/#.*$/, ''));
+  expect(text).not.toContain('created');
+  // ページ側もこのノートを使う（ここで照をつけると同じノートに入る）
+  await panel.locator('.cm-content').click();
+  await panel.keyboard.press('Control+End');
+  await panel.keyboard.type('\nメモ');
+  await expect(panel.locator('.save-state')).toHaveText('保存済み', { timeout: 5000 });
+
+  // 削除（確認ダイアログを受け入れる）
+  panel.once('dialog', d => void d.accept());
+  await panel.locator('#b-delete').click();
+  await expect(panel.locator('.empty')).toContainText('このページの註はまだありません');
+  expect(await noteFiles()).not.toContain('Another page.md');
+  const { readdir } = await import('node:fs/promises');
+  expect((await readdir(join(vault, '.trash'))).some(f => f.endsWith('Another page.md'))).toBe(true);
+  await page.close();
+  await panel.close();
+});

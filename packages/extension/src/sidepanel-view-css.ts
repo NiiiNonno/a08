@@ -95,4 +95,19 @@ export const PANEL_CSS = `
 .empty.quiet .brand { color: var(--faint); }
 .empty svg { vertical-align: -3px; }
 .empty code { font-family: var(--mono); font-size: 12px; }
+.empty button.create {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.empty button.create:hover { background: var(--hover); }
 `;

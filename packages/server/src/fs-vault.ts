@@ -69,6 +69,14 @@ export class FsVault implements VaultAdapter {
     await rename(this.abs(from), this.abs(to));
   }
 
+  /** vault の .trash/ に移す（Obsidian の「vault のゴミ箱」と同じ場所） */
+  async trash(p: string): Promise<void> {
+    const name = p.split('/').pop()!;
+    const dest = `.trash/${Date.now()}-${name}`;
+    await mkdir(dirname(this.abs(dest)), { recursive: true });
+    await rename(this.abs(p), this.abs(dest));
+  }
+
   async readBinary(p: string): Promise<Uint8Array | null> {
     try {
       return new Uint8Array(await readFile(this.abs(p)));

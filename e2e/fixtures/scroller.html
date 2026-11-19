@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Scroller Page</title>
+  <style>
+    /* Obsidian Publish のように、本文がウィンドウではなく内側の要素でスクロールするページ */
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    .site { display: flex; height: 100vh; }
+    .nav { width: 200px; }
+    .content { flex: 1; overflow-y: auto; padding: 0 24px; }
+    .spacer { height: 1600px; }
+  </style>
+</head>
+<body>
+  <div class="site">
+    <div class="nav">Navigation</div>
+    <div class="content" id="scroller">
+      <h1>Scroller Page</h1>
+      <p id="s1">The first paragraph has an inner marker phrase to annotate.</p>
+      <div class="spacer"></div>
+      <p id="s2">This deep paragraph is inside the scrolling container, far down the page.</p>
+      <div class="spacer"></div>
+    </div>
+  </div>
+</body>
+</html>

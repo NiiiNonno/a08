@@ -24,7 +24,7 @@ await build({
   logLevel: 'info',
 });
 
-for (const f of ['manifest.json', 'sidepanel.html', 'sidepanel.css', 'options.html', 'offscreen.html', 'theme-boot.js']) {
+for (const f of ['manifest.json', 'sidepanel.html', 'sidepanel.css', 'options.html', 'offscreen.html', 'theme-boot.js', 'obsidian-logo.svg']) {
   await cp(`${here}src/${f}`, `${out}${f}`);
 }
 await cp(`${here}src/_locales`, `${out}_locales`, { recursive: true });
