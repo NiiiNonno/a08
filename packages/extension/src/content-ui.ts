@@ -54,7 +54,7 @@ button.primary:hover { background: #255fc4; }
 .toast {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  top: 16px;
   padding: 8px 14px;
 }
 .toast.error { border-color: #d93025; color: #b42318; }
