@@ -134,7 +134,6 @@ test.beforeAll(async () => {
           port,
           token,
           ignoreSelectors: ['.immersive-translate-target-wrapper', '[data-immersive-translate-translation-element-mark]'],
-          copyLink: true,
         },
       });
     },

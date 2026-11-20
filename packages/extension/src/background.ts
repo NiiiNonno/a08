@@ -71,7 +71,7 @@ function connect(): Promise<void> {
         retryDelay = 1000;
         try {
           const hello = await request('hello', { client: 'chrome-extension', version: PROTOCOL_VERSION });
-          setStatus({ state: 'connected', vault: hello.vault, folder: hello.folder, styles: hello.styles, theme: hello.theme });
+          setStatus({ state: 'connected', vault: hello.vault, folder: hello.folder, styles: hello.styles, theme: hello.theme, options: hello.options });
         } catch (e) {
           setStatus({ state: 'disconnected', error: String(e) });
         }
@@ -136,6 +136,8 @@ function onServerMessage(raw: string) {
   }
   if (msg.event === 'stylesChanged') {
     status = { ...status, styles: (msg.data as EventMap['stylesChanged']).styles };
+  } else if (msg.event === 'optionsChanged') {
+    status = { ...status, options: (msg.data as EventMap['optionsChanged']).options };
   } else if (msg.event === 'themeChanged') {
     status = { ...status, theme: (msg.data as EventMap['themeChanged']).theme };
   }

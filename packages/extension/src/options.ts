@@ -3,7 +3,6 @@ import { loadSettings, type Broadcast, type ConnectionStatus, type Settings } fr
 const token = document.getElementById('token') as HTMLInputElement;
 const port = document.getElementById('port') as HTMLInputElement;
 const ignore = document.getElementById('ignore') as HTMLTextAreaElement;
-const copyLink = document.getElementById('copyLink') as HTMLInputElement;
 const name = chrome.i18n.getMessage('extName');
 document.title = `${name} — 設定`;
 document.getElementById('heading')!.textContent = `${name} — 設定`;
@@ -23,7 +22,6 @@ function showStatus(st: ConnectionStatus | undefined) {
   token.value = s.token;
   port.value = String(s.port);
   ignore.value = s.ignoreSelectors.join('\n');
-  copyLink.checked = s.copyLink;
   showStatus(await chrome.runtime.sendMessage({ kind: 'status' }));
 })();
 
@@ -32,7 +30,6 @@ document.getElementById('save')!.addEventListener('click', async () => {
     token: token.value.trim(),
     port: Number(port.value) || 27183,
     ignoreSelectors: ignore.value.split('\n').map(x => x.trim()).filter(Boolean),
-    copyLink: copyLink.checked,
   };
   await chrome.storage.local.set({ settings });
   statusEl.className = '';

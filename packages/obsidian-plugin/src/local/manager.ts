@@ -93,7 +93,7 @@ export class LocalAnnotations {
     this.pdf = new PdfAnnotations(plugin.app, {
       loaded: path => void this.load(path),
       annos: path => this.models.get(path)?.annos.map(a => ({ id: a.id, start: a.start, end: a.end, status: a.status, styleKey: a.styleKey })) ?? [],
-      clicked: (path, id) => void this.plugin.localPanel.focusCard(path, id),
+      clicked: (path, id) => this.highlightClicked(path, id),
     });
   }
 
@@ -699,8 +699,16 @@ export class LocalAnnotations {
     return path && id ? { path, id } : null;
   }
 
+  /** ハイライトを押した: 照の設定がオンならリンクをコピーし、カードを見せる（ノート・PDF 共通） */
+  highlightClicked(path: string, id: string) {
+    if (this.plugin.settings.copyLink) {
+      void this.copyNoteLink(path, id).catch(e => new Notice(`リンクをコピーできません: ${e instanceof Error ? e.message : e}`));
+    }
+    void this.plugin.localPanel.focusCard(path, id);
+  }
+
   /**
-   * 対象（PDF など）の註の、註ノートのブロックへのリンクをコピーする（照と同じリンク）。
+   * 対象（ノート・PDF）の註の、註ノートのブロックへのリンクをコピーする（照と同じリンク）。
    * ブロック ID がなければ付ける
    */
   async copyNoteLink(path: string, id: string): Promise<void> {
@@ -754,7 +762,7 @@ export class LocalAnnotations {
     this.pendingLinks.set(r.path, res.note.path);
     this.invalidateLinks();
     await this.load(r.path);
-    if (kind === 'sho' && res.blockId) {
+    if (kind === 'sho' && res.blockId && this.plugin.settings.copyLink) {
       const l = this.plugin.linkTo(res.note.path, res.blockId);
       await navigator.clipboard.writeText(l);
       new Notice(`照: リンクをコピーしました ${l}`);

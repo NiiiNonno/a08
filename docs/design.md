@@ -52,7 +52,7 @@ Obsidian プラグイン
 - カード（ブロックと ID 行）とコメントの間は常に一行空ける
 - リンクはプラグインが `app.fileManager.generateMarkdownLink` で作る（ユーザーのリンク形式の設定＝wikilink / markdown・最短パスなどに従う）
 - クリップボードへはまず `navigator.clipboard`、使えないページ（http など）では拡張の offscreen document で書く
-- リンクのコピーは拡張の設定で無効にできる（無効なら照はただのハイライト）
+- リンクのコピーはプラグインの設定で無効にできる（無効なら照はただのハイライト）。ブラウザ・vault 内のノート・PDF に共通の 1 つの設定で、拡張には `hello` の `options` と `optionsChanged` イベントで伝える
 
 ## URI の照合
 

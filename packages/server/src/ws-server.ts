@@ -20,6 +20,8 @@ import {
   type RequestMap,
   type RequestType,
   type Response,
+  DEFAULT_HOST_OPTIONS,
+  type HostOptions,
   type StyleConfig,
   type ThemeInfo,
   type Appearance,
@@ -31,6 +33,8 @@ export type HostHooks = {
   theme(): ThemeInfo;
   /** タグ別のハイライト設定 */
   styles(): StyleConfig;
+  /** ブラウザにも効く設定（照でリンクをコピーするか など） */
+  options?(): HostOptions;
   /** ブロックへの内部リンク（[[ノート#^id]] など） */
   linkTo(path: string, blockId: string): string;
   /** サイドパネル用の CSS 一式（なければ null） */
@@ -186,6 +190,7 @@ export class AnnotationServer {
           folder: service.folder,
           styles: hooks.styles(),
           theme: hooks.theme(),
+          options: hooks.options?.() ?? DEFAULT_HOST_OPTIONS,
           version: PROTOCOL_VERSION,
         };
         break;

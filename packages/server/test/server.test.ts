@@ -208,6 +208,8 @@ describe('AnnotationServer', () => {
     const hello = await call(ws, 'hello', { client: 'test', version: 1 });
     expect(hello.ok).toBe(true);
     expect(hello.result.styles.tags.map((t: any) => t.tag)).toEqual(['重要', '定義', '疑問', '引用']);
+    // 照でリンクをコピーするか（プラグインが options を渡さなければ既定値）
+    expect(hello.result.options).toEqual({ copyLink: true });
 
     const created = await call(ws, 'createAnnotation', {
       uris: ['https://srv.example/'], title: 'Srv', source: 'https://srv.example/', selector: sel, comment: 'hi #重要',

@@ -1,15 +1,13 @@
 /**
  * 拡張内部（background / content script / side panel）のメッセージ。
  */
-import type { EventMap, EventType, NoteView, RequestMap, RequestType, StyleConfig, ThemeInfo } from '@a08/core';
+import type { EventMap, EventType, HostOptions, NoteView, RequestMap, RequestType, StyleConfig, ThemeInfo } from '@a08/core';
 
 export type Settings = {
   port: number;
   token: string;
   /** 対訳型翻訳などで挿入される要素。テキストとして扱わない */
   ignoreSelectors: string[];
-  /** 照: ハイライトのクリックでブロックへのリンクをクリップボードにコピーする */
-  copyLink: boolean;
 };
 
 export const DEFAULT_IGNORE_SELECTORS = [
@@ -22,7 +20,6 @@ export const DEFAULT_SETTINGS: Settings = {
   port: 27183,
   token: '',
   ignoreSelectors: DEFAULT_IGNORE_SELECTORS,
-  copyLink: true,
 };
 
 export async function loadSettings(): Promise<Settings> {
@@ -36,6 +33,8 @@ export type ConnectionStatus = {
   folder?: string;
   styles?: StyleConfig;
   theme?: ThemeInfo;
+  /** Obsidian 側の設定（照でリンクをコピーするか など） */
+  options?: HostOptions;
   error?: string;
 };
 

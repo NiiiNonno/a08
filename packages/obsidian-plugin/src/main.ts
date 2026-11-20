@@ -49,6 +49,8 @@ type Settings = {
   showContext: boolean;
   /** vault 内のノートへの註ノートの名前に付ける末尾（「ノート名 - local」） */
   localSuffix: string;
+  /** 照・ハイライトのクリックで、註ノートのブロックへのリンクをコピーする（ブラウザ・ノート・PDF 共通） */
+  copyLink: boolean;
 };
 
 const DEFAULTS: Settings = {
@@ -58,6 +60,7 @@ const DEFAULTS: Settings = {
   stylesYaml: DEFAULT_STYLES_YAML,
   showContext: false,
   localSuffix: ' - local',
+  copyLink: true,
 };
 
 /** サイドパネルの枠（ヘッダーなど）に使う Obsidian の CSS 変数 */
@@ -225,7 +228,7 @@ export default class ObsidiannotPlugin extends Plugin {
         attached: (view, path) => local.editorAttached(view, path),
         idle: (view, path) => local.editorIdle(view, path),
         hasOrphans: path => local.problems(path).orphan.length > 0,
-        clicked: (path, id) => void this.localPanel.focusCard(path, id),
+        clicked: (path, id) => local.highlightClicked(path, id),
       }),
     );
     this.registerMarkdownPostProcessor((el, ctx) => local.onSection(el, ctx));
@@ -237,7 +240,7 @@ export default class ObsidiannotPlugin extends Plugin {
       if (!t?.closest?.('.markdown-preview-view .obsidiannot-section')) return;
       if (!document.getSelection()?.isCollapsed) return;
       const hit = local.annotationAtPoint(ev.clientX, ev.clientY, document);
-      if (hit) void this.localPanel.focusCard(hit.path, hit.id);
+      if (hit) local.highlightClicked(hit.path, hit.id);
     });
     const run = (kind: 'chu' | 'sho') => (checking: boolean) => {
       const r = this.adder.selection();
@@ -267,10 +270,7 @@ export default class ObsidiannotPlugin extends Plugin {
       const leaf = this.app.workspace.getLeavesOfType('pdf').find(l => l.view.containerEl.contains(t));
       if (!leaf || !isPdfView(leaf.view)) return;
       const hit = local.pdfAnnotationAt(leaf.view, ev.clientX, ev.clientY);
-      if (!hit) return;
-      // 押したハイライトの註ノートのブロックへのリンクをコピーし、カードを見せる
-      void local.copyNoteLink(hit.path, hit.id).catch(e => new Notice(`リンクをコピーできません: ${e instanceof Error ? e.message : e}`));
-      void this.localPanel.focusCard(hit.path, hit.id);
+      if (hit) local.highlightClicked(hit.path, hit.id);
     });
     // 註ノートでコメントのタグを書き換えたら、カードの色・タグもすぐ変える（保存を待たない）
     let restyleTimer: number | undefined;
@@ -512,6 +512,7 @@ export default class ObsidiannotPlugin extends Plugin {
         vaultName: () => this.app.vault.getName(),
         theme: () => this.theme(),
         styles: () => this.styles,
+        options: () => ({ copyLink: this.settings.copyLink }),
         linkTo: (p, id) => this.linkTo(p, id),
         appearance: () => this.appearance(),
         render: (p, c) => this.render(p, c),
@@ -637,6 +638,17 @@ class ObsidiannotSettingTab extends PluginSettingTab {
         t.setValue(p.settings.folder).onChange(async v => {
           p.settings.folder = v.trim() || DEFAULTS.folder;
           await p.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('照でリンクをコピーする')
+      .setDesc('照（★）で註を付けたときや、既存のハイライトをクリックしたときに、註ブロックへの内部リンク（[[ノート#^id]]）をクリップボードにコピーします。ブラウザ・vault 内のノート・PDF に共通です。オフにすると、照はただのハイライトになります。')
+      .addToggle(t =>
+        t.setValue(p.settings.copyLink).onChange(async v => {
+          p.settings.copyLink = v;
+          await p.saveSettings();
+          p.server?.broadcast('optionsChanged', { options: { copyLink: v } });
         }),
       );
 

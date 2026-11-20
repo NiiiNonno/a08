@@ -141,7 +141,7 @@ test.beforeAll(async () => {
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   extId = new URL(sw.url()).host;
   await sw.evaluate(
-    async ({ port, token }) => chrome.storage.local.set({ settings: { port, token, ignoreSelectors: [], copyLink: true } }),
+    async ({ port, token }) => chrome.storage.local.set({ settings: { port, token, ignoreSelectors: [], } }),
     { port: WS_PORT, token: TOKEN },
   );
   await expect.poll(() => dev.server.clientCount, { timeout: 10_000 }).toBeGreaterThan(0);

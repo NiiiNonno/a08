@@ -8,6 +8,7 @@
 import { TextModel, anchor, describe, ignoreSelectors, type IgnoreFn } from '@a08/core/anchoring';
 import {
   DEFAULT_STYLES,
+  DEFAULT_HOST_OPTIONS,
   HIGHLIGHT_PREFIX,
   accentColor,
   buildHighlightCss,
@@ -17,6 +18,7 @@ import {
   quoteOf,
   styleIndicesForTags,
   type AnnotationView,
+  type HostOptions,
   type NoteView,
   type Selector,
   type StyleConfig,
@@ -752,6 +754,7 @@ function onMessage(msg: ContentMessage, _sender: chrome.runtime.MessageSender, s
     case 'statusChanged': {
       const st = msg.status as ConnectionStatus;
       if (st.styles) applyStyles(st.styles);
+      applyOptions(st.options);
       const was = state.connected;
       state.connected = st.state === 'connected';
       if (state.connected && !was) void refreshNote();
@@ -762,6 +765,8 @@ function onMessage(msg: ContentMessage, _sender: chrome.runtime.MessageSender, s
       if (msg.event === 'stylesChanged') {
         applyStyles((msg.data as { styles: StyleConfig }).styles);
         paint();
+      } else if (msg.event === 'optionsChanged') {
+        applyOptions((msg.data as { options: HostOptions }).options);
       } else if (msg.event === 'noteChanged') {
         const { path, note } = msg.data as { path: string; note: NoteView | null };
         if (state.note?.path === path) {
@@ -787,12 +792,12 @@ async function init() {
   for (const k of [...(CSS.highlights?.keys() ?? [])]) if (String(k).startsWith('a08-')) CSS.highlights.delete(k);
   const settings = await loadSettings();
   state.ignore = ignoreSelectors(settings.ignoreSelectors);
-  state.copyLink = settings.copyLink;
   updateAdderTitles();
   applyStyles(DEFAULT_STYLES);
   try {
     const st = (await chrome.runtime.sendMessage({ kind: 'status' })) as ConnectionStatus;
     if (st?.styles) applyStyles(st.styles);
+    applyOptions(st?.options);
   } catch {
     /* background 起動前 */
   }
@@ -810,6 +815,12 @@ async function init() {
   }
 }
 
+/** Obsidian 側の設定（照でリンクをコピーするか）。古いプラグインで来なければ既定値 */
+function applyOptions(o: HostOptions | undefined) {
+  state.copyLink = (o ?? DEFAULT_HOST_OPTIONS).copyLink;
+  updateAdderTitles();
+}
+
 function updateAdderTitles() {
   $<HTMLButtonElement>('.b-shou').title = state.copyLink ? '照（ハイライトしてリンクをコピー）' : '照（ハイライト）';
 }
@@ -818,8 +829,6 @@ function onStorage(changes: Record<string, chrome.storage.StorageChange>) {
   if (changes.settings) {
     void loadSettings().then(s => {
       state.ignore = ignoreSelectors(s.ignoreSelectors);
-      state.copyLink = s.copyLink;
-      updateAdderTitles();
       anchorAll();
     });
   }

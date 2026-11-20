@@ -50,12 +50,20 @@ export type Appearance = {
   rootStyle?: string;
 };
 
+/** Obsidian 側の設定のうち、ブラウザにも効くもの */
+export type HostOptions = {
+  /** 照・既存のハイライトのクリックで、註ノートのブロックへのリンクをコピーする */
+  copyLink: boolean;
+};
+
+export const DEFAULT_HOST_OPTIONS: HostOptions = { copyLink: true };
+
 export type RequestMap = {
   /** 接続維持（MV3 の service worker は通信がないと止まる） */
   ping: { params: Record<string, never>; result: 'pong' };
   hello: {
     params: { client: string; version: number };
-    result: { vault: string; folder: string; styles: StyleConfig; theme: ThemeInfo; version: number };
+    result: { vault: string; folder: string; styles: StyleConfig; theme: ThemeInfo; options?: HostOptions; version: number };
   };
   /** 閲覧中ページの候補 URI からノートを探す */
   lookup: { params: { uris: string[] }; result: NoteView | null };
@@ -133,6 +141,7 @@ export type Response =
 export type EventMap = {
   noteChanged: { path: string; note: NoteView | null };
   stylesChanged: { styles: StyleConfig };
+  optionsChanged: { options: HostOptions };
   themeChanged: { theme: ThemeInfo };
   /** Obsidian で註がクリックされた。ブラウザで該当箇所を出す */
   reveal: {
