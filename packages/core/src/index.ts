@@ -6,3 +6,4 @@ export * from './styles.ts';
 export * from './protocol.ts';
 export * from './anchor.ts';
 export * from './align.ts';
+export * from './pdf-text.ts';

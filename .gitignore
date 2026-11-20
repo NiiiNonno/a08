@@ -7,3 +7,4 @@ e2e/fixtures/tmp/
 test-vault/obsidiannot/*.md
 !test-vault/obsidiannot/.gitkeep
 test-vault/.obsidian/
+e2e/.build/

@@ -2,7 +2,7 @@
  * 本文を選んだときに出る、註・照のボタン（Chrome 拡張の adder にあたるもの）。
  * 編集表示・閲覧表示のどちらでも出る。選んだ範囲は「再配置」のために覚えておく。
  */
-import { MarkdownView, setIcon } from 'obsidian';
+import { FileView, MarkdownView, setIcon, type View } from 'obsidian';
 import type ObsidiannotPlugin from '../main.ts';
 import type { LocalAnnotations, SourceRange } from './manager.ts';
 
@@ -31,13 +31,13 @@ export class SelectionAdder {
 
   /** 今の選択範囲（ボタン・コマンド用） */
   selection(): SourceRange | null {
-    const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-    return view ? this.local.selectionIn(view) : null;
+    return this.local.selectionInView(this.plugin.app.workspace.getActiveViewOfType(FileView));
   }
 
   private update() {
-    const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-    const r = view ? this.local.selectionIn(view) : null;
+    // ノート（MarkdownView）と PDF のビュー
+    const view = this.plugin.app.workspace.getActiveViewOfType(FileView);
+    const r = this.local.selectionInView(view);
     if (!view || !r) {
       // ボタンを押している途中は消さない
       if (!this.el?.matches(':hover')) this.hide();
@@ -50,7 +50,7 @@ export class SelectionAdder {
     this.show(rect);
   }
 
-  private selectionRect(view: MarkdownView): DOMRect | null {
+  private selectionRect(view: View): DOMRect | null {
     const sel = view.containerEl.ownerDocument.getSelection();
     if (sel && sel.rangeCount && !sel.isCollapsed) {
       const rects = sel.getRangeAt(0).getClientRects();
@@ -58,6 +58,7 @@ export class SelectionAdder {
       if (last) return last;
     }
     // 編集表示でフォーカスが外れていると DOM の選択がないので、エディタから位置を取る
+    if (!(view instanceof MarkdownView)) return null;
     const cm = (view.editor as unknown as { cm?: { coordsAtPos(p: number): { left: number; right: number; top: number; bottom: number } | null } }).cm;
     const c = this.current && cm?.coordsAtPos(this.current.end);
     return c ? new DOMRect(c.left, c.top, 1, c.bottom - c.top) : null;

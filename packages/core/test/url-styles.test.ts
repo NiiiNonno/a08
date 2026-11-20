@@ -55,3 +55,27 @@ describe('styles', () => {
     expect(css).toContain('@media (prefers-color-scheme: dark)');
   });
 });
+
+describe('underlineOf', () => {
+  it('省略形と個別の指定から下線を読む', async () => {
+    const { underlineOf } = await import('../src/styles.ts');
+    expect(underlineOf({ 'text-decoration': 'underline 2px #2f6fde', 'text-underline-offset': '3px' })).toEqual({
+      style: 'solid',
+      thickness: '2px',
+      color: '#2f6fde',
+      offset: '3px',
+    });
+    expect(underlineOf({ 'text-decoration': 'underline wavy 1.5px rgba(217, 48, 37, 0.8)' })).toEqual({
+      style: 'wavy',
+      thickness: '1.5px',
+      color: 'rgba(217, 48, 37, 0.8)',
+      offset: null,
+    });
+    expect(underlineOf({ 'text-decoration-line': 'underline', 'text-decoration-style': 'dotted', 'text-decoration-color': 'red' })).toMatchObject({
+      style: 'dotted',
+      color: 'red',
+    });
+    expect(underlineOf({ 'background-color': 'yellow' })).toBeNull();
+    expect(underlineOf({ 'text-decoration': 'line-through red' })).toBeNull();
+  });
+});

@@ -102,3 +102,16 @@ export function displayQuote(exact: string): string {
     .replace(/[ \t\f\v]+/g, ' ')
     .trim();
 }
+
+/** 前後が詰めて書く文字（漢字・かな・全角の記号など）か */
+const CJK = /[　-ヿ㐀-鿿豈-﫿＀-￯]/u;
+
+/**
+ * PDF の引用の表示用。PDF の文字起こしは行の折り返しごとに改行が入るので、改行を無視してつなぐ。
+ * 日本語などの詰めて書く文字どうしはそのまま、それ以外は空白 1 つでつなぐ
+ */
+export function joinPdfLines(exact: string): string {
+  return displayQuote(exact)
+    .replace(/(.?)\n+(.?)/gu, (_, a: string, b: string) => (CJK.test(a) || CJK.test(b) ? a + b : `${a} ${b}`))
+    .replace(/ {2,}/g, ' ');
+}

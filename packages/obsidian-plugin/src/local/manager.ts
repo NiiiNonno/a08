@@ -11,7 +11,9 @@ import {
   Notice,
   TFile,
   normalizePath,
+  setIcon,
   type MarkdownPostProcessorContext,
+  type View,
   type WorkspaceLeaf,
 } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
@@ -28,6 +30,7 @@ import {
   updateAnnotations,
   type Alignment,
   type AnchorStatus,
+  type PdfTextModel,
   type QuoteAnchor,
   type Selector,
   type TextQuoteSelector,
@@ -35,12 +38,15 @@ import {
 import type ObsidiannotPlugin from '../main.ts';
 import { annoField, editorPath, setAnnos, setFlash, type EditorAnno } from './editor.ts';
 import { FOCUS_HIGHLIGHT, TENTATIVE_HIGHLIGHT, styleKey } from './styles.ts';
+import { PdfAnnotations, isPdfView, type PdfViewLike } from './pdf.ts';
 
 export type Anno = {
   id: string;
   notePath: string;
   /** 保存されている引用文・文脈・位置 */
   quote: QuoteAnchor;
+  /** 保存されているセレクタ（PDF ではページも使う） */
+  selector: Selector[];
   /** 書き換えられる前の引用文（あれば） */
   original?: string;
   styleKey: string;
@@ -57,6 +63,8 @@ type Model = {
   text: string;
   /** 閲覧表示の本文が text と違うとき用 */
   alt?: { text: string; annos: Anno[] };
+  /** PDF のとき: 文字列のモデル（text は model.text） */
+  pdf?: PdfTextModel;
 };
 
 /** 本文上の範囲（選択範囲など） */
@@ -79,8 +87,15 @@ export class LocalAnnotations {
   private lastSelection: SourceRange | null = null;
   /** 註の状態が変わった（サイドバーの表示を更新するため） */
   onChange: (path: string) => void = () => undefined;
+  readonly pdf: PdfAnnotations;
 
-  constructor(private plugin: ObsidiannotPlugin) {}
+  constructor(private plugin: ObsidiannotPlugin) {
+    this.pdf = new PdfAnnotations(plugin.app, {
+      loaded: path => void this.load(path),
+      annos: path => this.models.get(path)?.annos.map(a => ({ id: a.id, start: a.start, end: a.end, status: a.status, styleKey: a.styleKey })) ?? [],
+      clicked: (path, id) => void this.plugin.localPanel.focusCard(path, id),
+    });
+  }
 
   private get app() {
     return this.plugin.app;
@@ -90,9 +105,9 @@ export class LocalAnnotations {
     return this.plugin.service.isNotePath(path);
   }
 
-  /** 註を付けられるノートか */
+  /** 註を付けられるファイルか（vault 内のノートと PDF） */
   isTarget(path: string | null | undefined): path is string {
-    return !!path && path.endsWith('.md') && !this.isNote(path);
+    return !!path && (isPdfPath(path) || (path.endsWith('.md') && !this.isNote(path)));
   }
 
   // ---- 註ノートと対象の対応 ----
@@ -205,6 +220,7 @@ export class LocalAnnotations {
           id: a.id,
           notePath: np,
           quote,
+          selector: a.selector,
           original: typeof a.original === 'string' ? a.original : undefined,
           styleKey: styleKey(idx[0]),
           start: -1,
@@ -212,6 +228,17 @@ export class LocalAnnotations {
           status: 'orphan',
         });
       }
+    }
+    if (isPdfPath(path)) {
+      // PDF は開いているビューの文書から文字を取り出す（開いていなければ何もしない）
+      const pdf = await this.pdf.textModel(path);
+      if (!pdf) return null;
+      const model: Model = { path, notePaths, annos, text: pdf.text, pdf };
+      for (const a of annos) setResult(a, pdf.anchor(a.selector));
+      this.pdf.setReady(path, pdf);
+      this.models.set(path, model);
+      this.publish(model);
+      return model;
     }
     let text = textIn ?? this.openText(path);
     if (text == null) {
@@ -269,6 +296,12 @@ export class LocalAnnotations {
   }
 
   private publish(model: Model) {
+    if (model.pdf) {
+      this.pdf.draw(model.path);
+      this.redecorateCards(model.notePaths);
+      this.onChange(model.path);
+      return;
+    }
     for (const cm of this.editorsOf(model.path)) {
       if (cm.state.doc.length === model.text.length && cm.state.doc.toString() === model.text) {
         cm.dispatch({ effects: setAnnos.of(this.editorAnnos(model)) });
@@ -361,6 +394,12 @@ export class LocalAnnotations {
 
   /** 対象のノートがエディタの外で変わったとき */
   fileModified(path: string) {
+    if (isPdfPath(path)) {
+      // PDF が差し替えられた: 文字を取り出し直す（ビューが読み込み直したときにも pagesloaded で読み込む）
+      this.pdf.forget(path);
+      if (this.models.has(path)) void this.load(path);
+      return;
+    }
     if (!this.models.has(path)) return;
     // エディタで開いていれば、エディタ側で追跡している
     if (this.editorsOf(path).length) return;
@@ -383,12 +422,16 @@ export class LocalAnnotations {
   /** 開いていないノートのモデルを捨てる */
   prune() {
     const open = new Set(
-      this.app.workspace
-        .getLeavesOfType('markdown')
-        .map(l => (l.view as MarkdownView).file?.path)
+      [...this.app.workspace.getLeavesOfType('markdown'), ...this.app.workspace.getLeavesOfType('pdf')]
+        .map(l => (l.view as { file?: TFile | null }).file?.path)
         .filter(Boolean),
     );
-    for (const p of this.models.keys()) if (!open.has(p)) this.models.delete(p);
+    for (const p of this.models.keys()) {
+      if (open.has(p)) continue;
+      this.models.delete(p);
+      if (isPdfPath(p)) this.pdf.forget(p);
+    }
+    this.pdf.attachAll();
     for (const el of this.sectionRanges.keys()) if (!el.isConnected) this.clearSection(el);
   }
 
@@ -639,6 +682,36 @@ export class LocalAnnotations {
     return end > start ? { path, start, end, text: s.text } : null;
   }
 
+  /** ビュー（ノートか PDF）の選択範囲 */
+  selectionInView(view: View | null): SourceRange | null {
+    if (view instanceof MarkdownView) return this.selectionIn(view);
+    if (isPdfView(view) && view.file) {
+      const r = this.pdf.selection(view);
+      return r ? { path: view.file.path, ...r } : null;
+    }
+    return null;
+  }
+
+  /** PDF のビューでクリックした位置にある註 */
+  pdfAnnotationAt(view: PdfViewLike, x: number, y: number): { path: string; id: string } | null {
+    const path = view.file?.path;
+    const id = path ? this.pdf.hitTest(view, x, y) : null;
+    return path && id ? { path, id } : null;
+  }
+
+  /**
+   * 対象（PDF など）の註の、註ノートのブロックへのリンクをコピーする（照と同じリンク）。
+   * ブロック ID がなければ付ける
+   */
+  async copyNoteLink(path: string, id: string): Promise<void> {
+    const anno = this.models.get(path)?.annos.find(a => a.id === id);
+    if (!anno) return;
+    const r = await this.plugin.service.ensureBlockId(anno.notePath, id);
+    const l = this.plugin.linkTo(r.note.path, r.blockId);
+    await navigator.clipboard.writeText(l);
+    new Notice(`照: リンクをコピーしました ${l}`);
+  }
+
   rememberSelection(r: SourceRange) {
     this.lastSelection = r;
   }
@@ -675,7 +748,7 @@ export class LocalAnnotations {
       // 註ノートが対象と同じ名前だと [[名前]] が註ノート自身を指すので、末尾を付ける
       title: `${file.basename}${this.plugin.settings.localSuffix || ' - local'}`,
       source: link,
-      selector: selectorsForRange(r.text, r.start, r.end),
+      selector: this.selectorsFor(r.path, r.text, r.start, r.end),
       ...(notePath ? { path: notePath } : {}),
     });
     this.pendingLinks.set(r.path, res.note.path);
@@ -687,6 +760,12 @@ export class LocalAnnotations {
       new Notice(`照: リンクをコピーしました ${l}`);
     }
     if (kind === 'chu') await this.plugin.localPanel.editComment(res.note.path, res.id);
+  }
+
+  /** 範囲のセレクタ（PDF ではページも記録する） */
+  private selectorsFor(path: string, text: string, start: number, end: number): Selector[] {
+    const pdf = this.models.get(path)?.pdf;
+    return pdf && pdf.text === text ? pdf.selectors(start, end) : selectorsForRange(text, start, end);
   }
 
   private findAnno(notePath: string, id: string): { model: Model; anno: Anno } | null {
@@ -719,13 +798,15 @@ export class LocalAnnotations {
   }
 
   private async place(anno: Anno, text: string, start: number, end: number) {
-    const selector = selectorsForRange(text, start, end);
+    const model0 = this.findAnno(anno.notePath, anno.id)?.model;
+    const selector = model0 ? this.selectorsFor(model0.path, text, start, end) : selectorsForRange(text, start, end);
     const exact = (selector[0] as TextQuoteSelector).exact;
     const original = exact !== anno.quote.exact && anno.original == null ? anno.quote.exact : undefined;
     // 表示はすぐに直す。記録が前と同じ（消した文を戻して同じ範囲を選んだときなど）だと
     // 註ノートは書き換わらず読み込み直しも起きないので、書き込みを待たない
     const model = this.findAnno(anno.notePath, anno.id)?.model;
     anno.quote = quoteAnchorOf(selector)!;
+    anno.selector = selector;
     if (original != null) anno.original = original;
     anno.status = 'ok';
     anno.start = start;
@@ -755,12 +836,21 @@ export class LocalAnnotations {
       return;
     }
     const leaf = this.mainLeafFor(target);
-    if ((leaf.view as MarkdownView).file?.path !== target) await leaf.openFile(file);
+    if ((leaf.view as { file?: TFile | null }).file?.path !== target) await leaf.openFile(file);
     this.app.workspace.setActiveLeaf(leaf, { focus: true });
-    const model = await this.ensure(target);
+    let model = await this.ensure(target);
+    // 開いたばかりの PDF は、文書の読み込みを待つ
+    for (let i = 0; !model && isPdfPath(target) && i < 50; i++) {
+      await new Promise(r => window.setTimeout(r, 200));
+      model = this.models.get(target) ?? (await this.load(target));
+    }
     const anno = model?.annos.find(a => a.id === id && a.notePath === notePath);
     if (!model || !anno || anno.status === 'orphan') {
       new Notice('本文の中に註の位置が見つかりません');
+      return;
+    }
+    if (isPdfView(leaf.view)) {
+      this.pdf.reveal(leaf.view, target, id, anno.start);
       return;
     }
     const view = leaf.view as MarkdownView;
@@ -778,9 +868,9 @@ export class LocalAnnotations {
 
   private mainLeafFor(path: string): WorkspaceLeaf {
     const ws = this.app.workspace;
-    const main = ws.getLeavesOfType('markdown').filter(l => l.getRoot() === ws.rootSplit);
+    const main = [...ws.getLeavesOfType('markdown'), ...ws.getLeavesOfType('pdf')].filter(l => l.getRoot() === ws.rootSplit);
     return (
-      main.find(l => (l.view as MarkdownView).file?.path === path) ??
+      main.find(l => (l.view as { file?: TFile | null }).file?.path === path) ??
       ws.getMostRecentLeaf(ws.rootSplit) ??
       ws.getLeaf('tab')
     );
@@ -812,6 +902,7 @@ export class LocalAnnotations {
   decorateCard(card: HTMLElement, notePath: string, id: string) {
     card.dataset.notePath = notePath;
     card.querySelector('.obsidiannot-local-status')?.remove();
+    card.querySelector('.obsidiannot-pdf-link')?.remove();
     card.querySelector('.obsidiannot-original')?.remove();
     card.removeClass('is-orphan', 'is-tentative');
     const found = this.findAnno(notePath, id);
@@ -820,6 +911,27 @@ export class LocalAnnotations {
     if (anno.original != null) {
       const meta = card.querySelector('.obsidiannot-meta');
       meta?.createSpan({ cls: 'obsidiannot-original', text: '書き換えあり', attr: { title: `元の引用: ${anno.original}` } });
+    }
+    if (found.model.pdf && anno.status !== 'orphan') {
+      const meta = card.querySelector('.obsidiannot-meta');
+      const b = meta?.createEl('button', {
+        cls: 'obsidiannot-pdf-link clickable-icon',
+        attr: { title: 'PDF の該当箇所へのリンクをコピー', 'aria-label': 'PDF の該当箇所へのリンクをコピー' },
+      });
+      if (b) {
+        setIcon(b, 'link');
+        // "Click to open" の右に置く
+        meta!.querySelector('.obsidiannot-open-hint')?.after(b);
+      }
+      b?.addEventListener('mousedown', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+      b?.addEventListener('click', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void this.copyPdfLink(found.model.path, anno);
+      });
     }
     if (anno.status !== 'orphan' && anno.status !== 'tentative') return;
     card.addClass(anno.status === 'orphan' ? 'is-orphan' : 'is-tentative');
@@ -841,6 +953,17 @@ export class LocalAnnotations {
     button('選択範囲に再配置', '本文で選んだ範囲を、この註の位置にします', () => this.relocate(notePath, id));
   }
 
+  /** PDF の該当箇所へのリンク（[[論文.pdf#page=3&selection=…]]）をコピーする */
+  private async copyPdfLink(path: string, anno: Anno) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    const folder = this.plugin.service.folder;
+    const name = this.app.metadataCache.fileToLinktext(file, folder ? `${folder}/_.md` : '_.md', false);
+    const link = `[[${name}${this.pdf.linkTarget(path, anno.start, anno.end)}]]`;
+    await navigator.clipboard.writeText(link);
+    new Notice(`リンクをコピーしました ${link}`);
+  }
+
   private redecorateCards(notePaths: string[]) {
     for (const card of Array.from(document.querySelectorAll<HTMLElement>('.obsidiannot-card[data-note-path]'))) {
       const np = card.dataset.notePath!;
@@ -855,5 +978,20 @@ export class LocalAnnotations {
       orphan: m?.annos.filter(a => a.status === 'orphan') ?? [],
       tentative: m?.annos.filter(a => a.status === 'tentative') ?? [],
     };
+  }
+}
+
+function isPdfPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.pdf');
+}
+
+function setResult(a: Anno, r: ReturnType<PdfTextModel['anchor']>) {
+  if (!r || r.status === 'orphan') {
+    a.status = 'orphan';
+    a.start = a.end = -1;
+  } else {
+    a.status = r.status;
+    a.start = r.start;
+    a.end = r.end;
   }
 }

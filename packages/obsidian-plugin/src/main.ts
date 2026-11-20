@@ -36,6 +36,7 @@ import { LocalAnnotations } from './local/manager.ts';
 import { LocalPanel } from './local/panel.ts';
 import { SelectionAdder } from './local/adder.ts';
 import { localEditorExtension } from './local/editor.ts';
+import { isPdfView } from './local/pdf.ts';
 import { buildLocalCss } from './local/styles.ts';
 
 type Settings = {
@@ -197,6 +198,7 @@ export default class ObsidiannotPlugin extends Plugin {
       await this.service.rebuildIndex();
       this.registerVaultEvents();
       this.localPanel.adopt();
+      this.local.pdf.attachAll();
       await this.startServer();
     });
 
@@ -255,6 +257,21 @@ export default class ObsidiannotPlugin extends Plugin {
       }),
     );
     this.registerEvent(this.app.workspace.on('layout-change', () => local.prune()));
+    // PDF のビュー: ページが描かれたらハイライトを描き、ハイライトを押したらカードを見せる
+    this.registerEvent(this.app.workspace.on('file-open', () => local.pdf.attachAll()));
+    this.register(() => local.pdf.destroy());
+    this.registerDomEvent(document, 'click', ev => {
+      const t = ev.target as HTMLElement | null;
+      if (!t?.closest?.('.pdf-container, .pdf-viewer-container, .pdfViewer')) return;
+      if (!document.getSelection()?.isCollapsed) return;
+      const leaf = this.app.workspace.getLeavesOfType('pdf').find(l => l.view.containerEl.contains(t));
+      if (!leaf || !isPdfView(leaf.view)) return;
+      const hit = local.pdfAnnotationAt(leaf.view, ev.clientX, ev.clientY);
+      if (!hit) return;
+      // 押したハイライトの註ノートのブロックへのリンクをコピーし、カードを見せる
+      void local.copyNoteLink(hit.path, hit.id).catch(e => new Notice(`リンクをコピーできません: ${e instanceof Error ? e.message : e}`));
+      void this.localPanel.focusCard(hit.path, hit.id);
+    });
     // 註ノートでコメントのタグを書き換えたら、カードの色・タグもすぐ変える（保存を待たない）
     let restyleTimer: number | undefined;
     this.registerEvent(
@@ -281,7 +298,7 @@ export default class ObsidiannotPlugin extends Plugin {
         this.local.noteModified(path);
         const f = this.app.vault.getAbstractFileByPath(path);
         if (f instanceof TFile) this.restyleCards(path, await this.app.vault.cachedRead(f));
-      } else if (path.endsWith('.md')) this.local.fileModified(path);
+      } else if (path.endsWith('.md') || path.toLowerCase().endsWith('.pdf')) this.local.fileModified(path);
       const r = await this.service.fileChanged(path);
       if (r !== undefined) this.server?.noteChanged(path, r);
     };

@@ -6,6 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   accentColor,
   displayQuote,
+  joinPdfLines,
   parseNote,
   quoteOf,
   styleIndicesForTags,
@@ -29,6 +30,13 @@ export type CardContext = {
 /** vault 内のノートへの註か（source が URL でなく [[リンク]] やパス） */
 export function isLocalSource(source: string): boolean {
   return !!source && !/^[a-z][a-z0-9+.-]*:/i.test(source.trim());
+}
+
+/** vault 内の PDF への註か（source が [[….pdf]] など） */
+export function isPdfSource(source: string): boolean {
+  if (!isLocalSource(source)) return false;
+  const m = source.match(/^\s*\[\[([^\]|#]+)/);
+  return /\.pdf$/i.test((m ? m[1] : source).trim());
 }
 
 function localName(source: string): string {
@@ -82,7 +90,9 @@ export function renderCard(source: string, el: HTMLElement, ctx: CardContext) {
   if (ctx.showContext && q?.prefix) {
     quote.createSpan({ cls: 'obsidiannot-context', text: `…${q.prefix.replace(/\s+/g, ' ').slice(-24)}` });
   }
-  quote.createSpan({ cls: 'obsidiannot-exact', text: displayQuote(quoteOf(a)) || '（引用なし）' });
+  // PDF の文字起こしの改行は折り返しにすぎないので、カードでは無視する
+  const exact = isPdfSource(a.source) ? joinPdfLines(quoteOf(a)) : displayQuote(quoteOf(a));
+  quote.createSpan({ cls: 'obsidiannot-exact', text: exact || '（引用なし）' });
   if (ctx.showContext && q?.suffix) {
     quote.createSpan({ cls: 'obsidiannot-context', text: `${q.suffix.replace(/\s+/g, ' ').slice(0, 24)}…` });
   }

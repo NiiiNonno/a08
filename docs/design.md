@@ -132,6 +132,18 @@ Web と違って、対象が常に編集される。SideComments（同様のプ�
 - **サイドバー**（`local/panel.ts`）: 註ノートを右のサイドバーで普通の markdown タブとして開き、開いているノートに追従する（固定して、中のリンクで別のノートに移らないようにする）。推定・見つからない註の件数を上に出す
 - **再配置**: 本文で選んだ範囲を覚えておき、カードの「選択範囲に再配置」でその範囲を記録する。推定の註は「ここで確定」で今の位置を記録する
 
+## vault 内の PDF への註
+
+Obsidian の PDF ビューア（PDF.js が元）に手を入れる。ノートへの註の仕組み（註ノート・サイドバー・カード・推定と再配置）をそのまま使い、対象のファイルを `.pdf` に広げた。PDF++（MIT）のやり方を参考にしたが、コードには依存しない。
+
+- **文字列**（`core/pdf-text.ts`）: ページごとに `getTextContent({ includeMarkedContent: true, disableNormalization: true })` の項目をつなぎ（`hasEOL` の後に改行）、ページの間を空行で区切って PDF 全体の文字列にする。正規化しないのは、ビューアの文字の層と同じ文字列にするため。ファイルの更新日時ごとに取り出した結果を覚えておく
+- **記録**: TextQuoteSelector・TextPositionSelector（PDF 全体の文字列で）と PageSelector（`index` は 0 から、`label` はページの表示名）。Hypothesis が PDF で記録するのと同じ組み合わせ。位置探しはノートと同じ `anchorQuote`。位置の記録がなければページの先頭を手がかりにする。PDF は書き換わらないので、編集の追跡と書き戻しはない
+- **触る内部**: `view.viewer.child.pdfViewer` の `eventBus`（`pagesloaded`・`textlayerrendered`）と `pdfViewer`（`pdfDocument`・`getPageView`・`scrollPageIntoView`）、ページの文字の層の要素（`textDivs`。取れなければ文字の層の span から拾う）だけ。Obsidian の内部の関数は書き換えない
+- **文字の層との対応**: 文字の層の要素の文字（行末の `<br>` は改行）をつないだ文字列を、ページの文字列と突き合わせる。同じなら素通し、違えば `align` で対応づける。文字の層の番号（`data-idx`）の数え方が版で変わっても影響を受けない
+- **描画**: ページの上に層を置き、ハイライトの範囲の矩形（同じ行はまとめる）を、層に対する割合で置く（PDF++ と同じ方式。拡大縮小に追従し、ページが描き直されたら `textlayerrendered` で描き直す）。色はハイライトのスタイル設定のクラス、乗算（ダークテーマでは screen）で重ねる。層は文字の層より下で、選択の邪魔をしない。クリックは座標で判定する
+- **PDF へのリンク**: `#page=N&selection=開始の番号,位置,終わりの番号,位置`（Obsidian 標準）。番号は文字の層の `data-idx`（Obsidian 1.8.0 だけ 1 から数える。PDF++ と同じ扱い）。ページの文字の層が描かれていないときや番号がないときは `#page=N` だけ
+- **テスト**: 文字列の作り方と位置探しは、作った PDF を pdfjs-dist で読む単体テスト。描画・選択・クリック・リンクは、PDF.js の標準のビューアの上で `local/pdf.ts` を動かす E2E（`e2e/pdf.spec.ts`）。Obsidian に組み込んだ形は実機で確かめる
+
 ## 既知の制限・未実装
 
 - サイドパネルの見た目は Obsidian の CSS をそのまま使うが、完全には同じにならないものがある
@@ -139,7 +151,9 @@ Web と違って、対象が常に編集される。SideComments（同様のプ�
   - JavaScript で動く描画（Dataview のクエリ、Excalidraw など）や、描画後に時間をかけて変わるもの
   - 画像以外の埋め込み（PDF・音声・動画）
 - 拡張の UI の文言は日本語のみ（拡張の名前・説明だけ Chrome の表示言語に従う）。ボタンはアイコンにして、言語に依存しにくくしている
-- PDF への註（拡張に PDF.js ビューアを同梱し、Hypothesis の `anchoring/pdf.ts` を移植する予定。selector の型は用意済み）
+- Chrome で開いた PDF への註（vault 内の PDF は Obsidian の PDF ビューアで対応済み）
+- PDF の右クリックメニューへの項目（Obsidian の内部の関数を書き換える必要があるため見送り。選択時のボタンとコマンドで代わりにする）
+- スキャンした PDF（文字の層がない）への註
 - vault 内のノートへの註は、ポップアウトしたウィンドウでは閲覧表示のハイライトが出ない（ハイライトの登録がメインのウィンドウのみ）
 - Hypothesis から書き出した既存の註の取り込み
 - iframe 内の本文には未対応（content script は最上位フレームのみ）

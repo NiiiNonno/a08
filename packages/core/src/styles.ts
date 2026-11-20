@@ -226,3 +226,62 @@ export function accentColor(st: HighlightStyle, dark = false): string {
   if (d.color) return d.color;
   return 'rgba(255, 200, 0, 0.8)';
 }
+
+/** 下線（文字のない所に下線を描くとき用。PDF のハイライトは文字の上に重ねた箱なので text-decoration が効かない） */
+export type Underline = {
+  style: 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy';
+  /** CSS の長さ（auto などは null） */
+  thickness: string | null;
+  /** CSS の色（指定がなければ null） */
+  color: string | null;
+  /** text-underline-offset（CSS の長さ。なければ null） */
+  offset: string | null;
+};
+
+const LINE_STYLES = ['solid', 'double', 'dotted', 'dashed', 'wavy'] as const;
+
+/** 空白で区切る（括弧の中の空白では区切らない） */
+function tokens(s: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (const ch of s.trim()) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth = Math.max(0, depth - 1);
+    if (/\s/.test(ch) && depth === 0) {
+      if (cur) out.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+const isLength = (t: string) => /^-?(\d+(\.\d+)?|\.\d+)(px|em|rem|pt|%)?$/i.test(t) || /^calc\(/i.test(t);
+
+/** スタイルの宣言から下線を読む（下線でなければ null） */
+export function underlineOf(d: StyleDecl): Underline | null {
+  let line: string[] = [];
+  let style: Underline['style'] = 'solid';
+  let thickness: string | null = null;
+  let color: string | null = null;
+  if (d['text-decoration']) {
+    for (const t of tokens(d['text-decoration'])) {
+      const low = t.toLowerCase();
+      if (['underline', 'overline', 'line-through', 'none'].includes(low)) line.push(low);
+      else if ((LINE_STYLES as readonly string[]).includes(low)) style = low as Underline['style'];
+      else if (isLength(t)) thickness = t;
+      else if (['auto', 'from-font'].includes(low)) thickness = null;
+      else color = t;
+    }
+  }
+  if (d['text-decoration-line']) line = tokens(d['text-decoration-line']).map(t => t.toLowerCase());
+  const st = d['text-decoration-style']?.trim().toLowerCase();
+  if (st && (LINE_STYLES as readonly string[]).includes(st)) style = st as Underline['style'];
+  const th = d['text-decoration-thickness']?.trim();
+  if (th) thickness = isLength(th) ? th : null;
+  if (d['text-decoration-color']) color = d['text-decoration-color'].trim();
+  if (!line.includes('underline')) return null;
+  const off = d['text-underline-offset']?.trim();
+  return { style, thickness, color, offset: off && isLength(off) ? off : null };
+}

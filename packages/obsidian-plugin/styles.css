@@ -188,3 +188,37 @@
   color: var(--text-faint);
   margin-top: 6px;
 }
+/* ---- PDF への註 ---- */
+.obsidiannot-pdf-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+/* 色は「ハイライトのスタイル」設定の .obsidiannot-mark-* から。PDF の文字が透けるよう乗算で重ねる */
+.obsidiannot-pdf-rect {
+  position: absolute;
+  border-radius: 1px;
+  mix-blend-mode: multiply;
+}
+.theme-dark .obsidiannot-pdf-rect {
+  mix-blend-mode: screen;
+}
+.obsidiannot-pdf-rect.is-tentative {
+  border-bottom: 2px dashed var(--text-warning, orange);
+}
+.obsidiannot-card .obsidiannot-pdf-link {
+  height: auto;
+  padding: 1px 3px;
+  margin-inline-start: -4px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-faint);
+}
+.obsidiannot-card .obsidiannot-pdf-link:hover {
+  color: var(--text-normal);
+}
+.obsidiannot-card .obsidiannot-pdf-link svg {
+  width: var(--icon-xs, 14px);
+  height: var(--icon-xs, 14px);
+}
